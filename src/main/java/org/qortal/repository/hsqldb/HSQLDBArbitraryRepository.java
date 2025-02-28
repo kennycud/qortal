@@ -28,6 +28,7 @@ import org.qortal.utils.ListUtils;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -793,7 +794,7 @@ public class HSQLDBArbitraryRepository implements ArbitraryRepository {
 	}
 
 	@Override
-	public List<ArbitraryResourceData> searchArbitraryResources(Service service, String query, String identifier, List<String> names, String title, String description, boolean prefixOnly,
+	public List<ArbitraryResourceData> searchArbitraryResources(Service service, String query, String identifier, List<String> names, String title, String description, String keywords, boolean prefixOnly,
 																List<String> exactMatchNames, boolean defaultResource, SearchMode mode, Integer minLevel, Boolean followedOnly, Boolean excludeBlocked,
 																Boolean includeMetadata, Boolean includeStatus, Long before, Long after, Integer limit, Integer offset, Boolean reverse) throws DataException {
 
@@ -924,6 +925,25 @@ public class HSQLDBArbitraryRepository implements ArbitraryRepository {
 			String queryWildcard = prefixOnly ? String.format("%s%%", description.toLowerCase()) : String.format("%%%s%%", description.toLowerCase());
 			sql.append(" AND LCASE(description) LIKE ?");
 			bindParams.add(queryWildcard);
+		}
+
+		if (keywords != null) {
+			String[] encryptedTokens = keywords.split(",");
+	
+			List<String> conditions = new ArrayList<>();
+			List<String> bindValues = new ArrayList<>(); 
+		
+			for (String token : encryptedTokens) {
+				conditions.add("POSITION(? IN description) > 0");
+				bindValues.add(token.trim()); 
+			}
+		
+		
+			String finalCondition = String.join(" OR ", conditions);
+			sql.append(" AND (").append(finalCondition).append(")");
+		
+			bindParams.addAll(bindValues);  
+		
 		}
 
 		// Handle name searches

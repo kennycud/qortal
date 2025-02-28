@@ -84,6 +84,7 @@ isDOMContentLoaded: isDOMContentLoaded ? true : false
 
 function handleQDNResourceDisplayed(pathurl, isDOMContentLoaded) {
 // make sure that an empty string the root path
+if(pathurl?.startsWith('/render/hash/')) return;
 const path = pathurl || '/'
     if (!isManualNavigation) {
     isManualNavigation = true
@@ -283,8 +284,6 @@ window.addEventListener("message", async (event) => {
         // This request was destined for the UI, so ignore it
         return;
     }
-
-    console.log("Core received action: " + JSON.stringify(event.data.action));
 
     let url;
     let data = event.data;
@@ -694,6 +693,7 @@ const qortalRequestWithTimeout = (request, timeout) =>
  * Send current page details to UI
  */
 document.addEventListener('DOMContentLoaded', (event) => {
+ 
 resetVariables()
     qortalRequest({
         action: "QDN_RESOURCE_DISPLAYED",
@@ -712,6 +712,7 @@ resetVariables()
  * Handle app navigation
  */
 navigation.addEventListener('navigate', (event) => {
+
     const url = new URL(event.destination.url);
 
     let fullpath = url.pathname + url.hash;
