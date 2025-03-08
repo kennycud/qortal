@@ -382,6 +382,7 @@ window.addEventListener("message", async (event) => {
             if (data.identifier != null) url = url.concat("&identifier=" + data.identifier);
             if (data.name != null) url = url.concat("&name=" + data.name);
             if (data.names != null) data.names.forEach((x, i) => url = url.concat("&name=" + x));
+            if (data.keywords != null) data.keywords.forEach((x, i) => url = url.concat("&keywords=" + x));
             if (data.title != null) url = url.concat("&title=" + data.title);
             if (data.description != null) url = url.concat("&description=" + data.description);
             if (data.prefix != null) url = url.concat("&prefix=" + new Boolean(data.prefix).toString());
