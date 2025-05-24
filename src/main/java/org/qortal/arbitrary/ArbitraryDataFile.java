@@ -52,7 +52,7 @@ public class ArbitraryDataFile {
 
     private static final Logger LOGGER = LogManager.getLogger(ArbitraryDataFile.class);
 
-    public static final long MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MiB
+    public static final long MAX_FILE_SIZE = 2L * 1024 * 1024 * 1024; // 2 GiB
     protected static final int MAX_CHUNK_SIZE = 1 * 1024 * 1024; // 1MiB
     public static final int CHUNK_SIZE = 512 * 1024; // 0.5MiB
     public static int SHORT_DIGEST_LENGTH = 8;

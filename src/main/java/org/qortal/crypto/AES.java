@@ -100,7 +100,7 @@ public class AES {
         // Prepend the output stream with the 16 byte initialization vector
         outputStream.write(iv.getIV());
 
-        byte[] buffer = new byte[1024];
+        byte[] buffer = new byte[65536];
         int bytesRead;
         while ((bytesRead = inputStream.read(buffer)) != -1) {
             byte[] output = cipher.update(buffer, 0, bytesRead);
@@ -138,7 +138,7 @@ public class AES {
         Cipher cipher = Cipher.getInstance(algorithm);
         cipher.init(Cipher.DECRYPT_MODE, key, new IvParameterSpec(iv));
 
-        byte[] buffer = new byte[64];
+        byte[] buffer = new byte[65536];
         int bytesRead;
         while ((bytesRead = inputStream.read(buffer)) != -1) {
             byte[] output = cipher.update(buffer, 0, bytesRead);

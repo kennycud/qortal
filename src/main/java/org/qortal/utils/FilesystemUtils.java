@@ -6,6 +6,7 @@ import org.qortal.settings.Settings;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
@@ -232,31 +233,37 @@ public class FilesystemUtils {
     }
 
     public static byte[] getSingleFileContents(Path path, Integer maxLength) throws IOException {
-        byte[] data = null;
-        // TODO: limit the file size that can be loaded into memory
-
-        // If the path is a file, read the contents directly
-        if (path.toFile().isFile()) {
-            int fileSize = (int)path.toFile().length();
-            maxLength = maxLength != null ? Math.min(maxLength, fileSize) : fileSize;
-            data = FilesystemUtils.readFromFile(path.toString(), 0, maxLength);
-        }
-
-        // Or if it's a directory, only load file contents if there is a single file inside it
-        else if (path.toFile().isDirectory()) {
+        Path filePath = null;
+    
+        if (Files.isRegularFile(path)) {
+            filePath = path;
+        } else if (Files.isDirectory(path)) {
             String[] files = ArrayUtils.removeElement(path.toFile().list(), ".qortal");
             if (files.length == 1) {
-                Path filePath = Paths.get(path.toString(), files[0]);
-                if (filePath.toFile().isFile()) {
-                    int fileSize = (int)filePath.toFile().length();
-                    maxLength = maxLength != null ? Math.min(maxLength, fileSize) : fileSize;
-                    data = FilesystemUtils.readFromFile(filePath.toString(), 0, maxLength);
-                }
+                filePath = path.resolve(files[0]);
             }
         }
-
-        return data;
+    
+        if (filePath == null || !Files.exists(filePath)) {
+            return null;
+        }
+    
+        long fileSize = Files.size(filePath);
+        int length = (maxLength != null) ? Math.min(maxLength, (int) Math.min(fileSize, Integer.MAX_VALUE)) : (int) Math.min(fileSize, Integer.MAX_VALUE);
+    
+        try (InputStream in = Files.newInputStream(filePath)) {
+            byte[] buffer = new byte[length];
+            int bytesRead = in.read(buffer);
+            if (bytesRead < length) {
+                // Resize buffer to actual read size
+                byte[] trimmed = new byte[bytesRead];
+                System.arraycopy(buffer, 0, trimmed, 0, bytesRead);
+                return trimmed;
+            }
+            return buffer;
+        }
     }
+    
 
     /**
      * isSingleFileResource

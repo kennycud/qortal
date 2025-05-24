@@ -796,5 +796,10 @@
 			<artifactId>jaxb-runtime</artifactId>
 			<version>${jaxb-runtime.version}</version>
 		</dependency>
+		<dependency>
+<groupId>org.apache.tika</groupId>
+<artifactId>tika-core</artifactId>
+<version>3.1.0</version> 
+</dependency>
 	</dependencies>
 </project>

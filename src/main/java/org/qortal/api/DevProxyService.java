@@ -40,6 +40,7 @@ public class DevProxyService {
 	private DevProxyService() {
 		this.config = new ResourceConfig();
 		this.config.packages("org.qortal.api.proxy.resource", "org.qortal.api.resource");
+		this.config.register(org.glassfish.jersey.media.multipart.MultiPartFeature.class);
 		this.config.register(OpenApiResource.class);
 		this.config.register(ApiDefinition.class);
 		this.config.register(AnnotationPostProcessor.class);
