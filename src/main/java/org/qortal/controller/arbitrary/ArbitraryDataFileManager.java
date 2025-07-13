@@ -129,7 +129,7 @@ public class ArbitraryDataFileManager extends Thread {
     public boolean fetchArbitraryDataFiles(Peer peer,
                                            byte[] signature,
                                            ArbitraryTransactionData arbitraryTransactionData,
-                                           List<byte[]> hashes) throws DataException {
+                                           List<byte[]> hashes, ArbitraryFileListResponseInfo responseInfo) throws DataException {
 
         // Load data file(s)
         ArbitraryDataFile arbitraryDataFile = ArbitraryDataFile.fromTransactionData(arbitraryTransactionData);
@@ -161,6 +161,8 @@ public class ArbitraryDataFileManager extends Thread {
                 }
                 else {
                     LOGGER.trace("Already requesting data file {} for signature {} from peer {}", arbitraryDataFile, Base58.encode(signature), peer);
+                    this.addResponse(responseInfo);
+
                 }
             }
         }
