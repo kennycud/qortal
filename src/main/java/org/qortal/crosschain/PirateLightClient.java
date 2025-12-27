@@ -1,9 +1,9 @@
 package org.qortal.crosschain;
 
-import cash.z.wallet.sdk.rpc.CompactFormats.CompactBlock;
-import cash.z.wallet.sdk.rpc.CompactTxStreamerGrpc;
-import cash.z.wallet.sdk.rpc.Service;
-import cash.z.wallet.sdk.rpc.Service.*;
+import pirate.wallet.sdk.rpc.CompactFormats.CompactBlock;
+import pirate.wallet.sdk.rpc.CompactTxStreamerGrpc;
+import pirate.wallet.sdk.rpc.Service;
+import pirate.wallet.sdk.rpc.Service.*;
 import com.google.common.hash.HashCode;
 import com.google.protobuf.ByteString;
 import io.grpc.ManagedChannel;

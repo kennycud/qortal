@@ -446,6 +446,115 @@
 			</plugins>
 		</pluginManagement>
 	</build>
+<!--	Added to be able to auto-build new .proto for coins like ARRR-->
+<!--	Run to build new proto as shown below-->
+<!--	mvn -Pproto-codegen -DskipTests clean generate-sources-->
+<!--	once the files have been built, they will be in target/generated-sources/protobuf-->
+<!--	copy them to the pirate.wallet.sdk package in src/main/java-->
+
+	<profiles>
+		<profile>
+			<id>proto-codegen</id>
+			<build>
+				<plugins>
+					<!-- OS classifier for protoc/protoc-gen-grpc-java -->
+					<plugin>
+						<groupId>kr.motd.maven</groupId>
+						<artifactId>os-maven-plugin</artifactId>
+						<version>1.7.1</version>
+						<executions>
+							<execution>
+								<goals>
+									<goal>detect</goal>
+								</goals>
+							</execution>
+						</executions>
+					</plugin>
+
+					<!-- Generate Protobuf messages + gRPC stubs (DO NOT add generated dirs to source roots) -->
+					<plugin>
+						<groupId>org.xolstice.maven.plugins</groupId>
+						<artifactId>protobuf-maven-plugin</artifactId>
+						<version>0.6.1</version>
+						<configuration>
+							<!-- Prevent duplicate class errors: we will copy into src/main/java ourselves -->
+							<addCompileSourceRoot>false</addCompileSourceRoot>
+
+							<protocArtifact>
+								com.google.protobuf:protoc:${protobuf.version}:exe:${os.detected.classifier}
+							</protocArtifact>
+							<pluginId>grpc-java</pluginId>
+							<pluginArtifact>
+								io.grpc:protoc-gen-grpc-java:${grpc.version}:exe:${os.detected.classifier}
+							</pluginArtifact>
+
+							<!-- Your Pirate .proto location -->
+							<protoSourceRoot>${project.basedir}/src/main/resources/proto.pirate</protoSourceRoot>
+						</configuration>
+						<executions>
+							<execution>
+								<id>generate-protos</id>
+								<phase>generate-sources</phase>
+								<goals>
+									<goal>compile</goal>
+									<goal>compile-custom</goal>
+								</goals>
+							</execution>
+						</executions>
+					</plugin>
+
+					<!-- (Optional but recommended) wipe old checked-in stubs before copying -->
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-antrun-plugin</artifactId>
+						<version>3.1.0</version>
+						<executions>
+							<execution>
+								<id>wipe-old-pirate-stubs</id>
+								<phase>generate-sources</phase>
+								<goals><goal>run</goal></goals>
+								<configuration>
+									<target>
+										<delete dir="${project.basedir}/src/main/java/pirate/wallet/sdk/rpc" failonerror="false"/>
+									</target>
+								</configuration>
+							</execution>
+						</executions>
+					</plugin>
+
+					<!-- Copy generated sources into src/main/java to match repo structure -->
+					<plugin>
+						<artifactId>maven-resources-plugin</artifactId>
+						<version>${maven-resources-plugin.version}</version>
+						<executions>
+							<execution>
+								<id>copy-generated-grpc-into-src</id>
+								<phase>process-sources</phase>
+								<goals><goal>copy-resources</goal></goals>
+								<configuration>
+									<overwrite>true</overwrite>
+									<outputDirectory>${project.basedir}/src/main/java</outputDirectory>
+									<resources>
+										<resource>
+											<directory>${project.build.directory}/generated-sources/protobuf/java</directory>
+											<includes><include>pirate/wallet/sdk/rpc/**/*.java</include></includes>
+											<filtering>false</filtering>
+										</resource>
+										<resource>
+											<directory>${project.build.directory}/generated-sources/protobuf/grpc-java</directory>
+											<includes><include>pirate/wallet/sdk/rpc/**/*.java</include></includes>
+											<filtering>false</filtering>
+										</resource>
+									</resources>
+								</configuration>
+							</execution>
+						</executions>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
+
 	<repositories>
 		<repository>
 			<id>project.local</id>

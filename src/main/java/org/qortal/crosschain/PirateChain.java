@@ -1,6 +1,6 @@
 package org.qortal.crosschain;
 
-import cash.z.wallet.sdk.rpc.CompactFormats;
+import pirate.wallet.sdk.rpc.CompactFormats;
 import com.google.common.hash.HashCode;
 import com.rust.litewalletjni.LiteWalletJni;
 import org.bitcoinj.core.*;
@@ -55,7 +55,8 @@ public class PirateChain extends Bitcoiny {
 			public Collection<Server> getServers() {
 				return Arrays.asList(
 					// Servers chosen on NO BASIS WHATSOEVER from various sources!
-					new Server("lightd.pirate.black", Server.ConnectionType.SSL, 443)
+//					new Server("lightd.pirate.black", Server.ConnectionType.SSL, 443),
+					new Server("arrr.qortal.link", Server.ConnectionType.SSL, 443)
 				);
 			}
 
