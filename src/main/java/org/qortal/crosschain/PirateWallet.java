@@ -17,12 +17,14 @@ import org.qortal.utils.Base58;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Random;
 
@@ -76,17 +78,30 @@ public class PirateWallet {
 
             // Derive seed phrase from entropy bytes
             String inputSeedResponse = LiteWalletJni.getseedphrasefromentropyb64(entropy64);
-            JSONObject inputSeedJson =  new JSONObject(inputSeedResponse);
+            JSONObject inputSeedJson = parseJsonObject(inputSeedResponse, "getseedphrasefromentropyb64");
+            if (inputSeedJson == null) {
+                LOGGER.info("Unable to initialize Pirate Chain wallet: seed phrase response was not valid JSON");
+                return false;
+            }
             String inputSeedPhrase = null;
             if (inputSeedJson.has("seedPhrase")) {
                 inputSeedPhrase = inputSeedJson.getString("seedPhrase");
             }
 
+            int configuredBirthday = Settings.getInstance().getArrrDefaultBirthday();
+            boolean forceFullRescan = !this.isNullSeedWallet && configuredBirthday <= 1;
+
             String wallet = this.load();
+            boolean loadedFromCache = wallet != null;
+            if (wallet != null && forceFullRescan) {
+                this.deleteWalletCache();
+                wallet = null;
+                loadedFromCache = false;
+            }
             if (wallet == null) {
                 // Wallet doesn't exist, so create a new one
 
-                int birthday = Settings.getInstance().getArrrDefaultBirthday();
+                int birthday = configuredBirthday;
                 if (this.isNullSeedWallet) {
                     try {
                         // Attempt to set birthday to the current block for null seed wallets
@@ -98,22 +113,9 @@ public class PirateWallet {
                 }
 
                 // Initialize new wallet
-                String birthdayString = String.format("%d", birthday);
-                String outputSeedResponse = LiteWalletJni.initfromseed(serverUri, this.params, inputSeedPhrase, birthdayString, this.saplingOutput64, this.saplingSpend64); // Thread-safe.
-                JSONObject outputSeedJson =  new JSONObject(outputSeedResponse);
-                String outputSeedPhrase = null;
-                if (outputSeedJson.has("seed")) {
-                    outputSeedPhrase = outputSeedJson.getString("seed");
-                }
-
-                // Ensure seed phrase in response matches supplied seed phrase
-                if (inputSeedPhrase == null || !Objects.equals(inputSeedPhrase, outputSeedPhrase)) {
-                    LOGGER.info("Unable to initialize Pirate Chain wallet: seed phrases do not match, or are null");
+                if (!this.initFromSeed(serverUri, inputSeedPhrase, birthday)) {
                     return false;
                 }
-
-                this.seedPhrase = outputSeedPhrase;
-
             } else {
                 // Restore existing wallet
                 String response = LiteWalletJni.initfromb64(serverUri, params, wallet, saplingOutput64, saplingSpend64);
@@ -126,13 +128,140 @@ public class PirateWallet {
 
             // Check that we're able to communicate with the library
             Integer ourHeight = this.getHeight();
-            return (ourHeight != null && ourHeight > 0);
+            if (ourHeight == null || ourHeight <= 0) {
+                return false;
+            }
+
+            if (!this.isNullSeedWallet && configuredBirthday > 1 && ourHeight < configuredBirthday) {
+                if (loadedFromCache) {
+                    LOGGER.warn("Pirate wallet height {} below configured birthday {}. Recreating wallet cache.", ourHeight, configuredBirthday);
+                    this.deleteWalletCache();
+                    if (!this.initFromSeed(serverUri, inputSeedPhrase, configuredBirthday)) {
+                        return false;
+                    }
+                    ourHeight = this.getHeight();
+                }
+
+                if (ourHeight == null || ourHeight <= 0 || ourHeight < configuredBirthday) {
+                    LOGGER.warn("Pirate wallet initialized below configured birthday {} (height {}).", configuredBirthday, ourHeight);
+                    return false;
+                }
+            }
+
+            return true;
 
         } catch (IOException | JSONException | UnsatisfiedLinkError e) {
             LOGGER.info("Unable to initialize Pirate Chain wallet: {}", e.getMessage());
         }
 
         return false;
+    }
+
+    private boolean initFromSeed(String serverUri, String inputSeedPhrase, int birthday) {
+        String birthdayString = String.format("%d", birthday);
+        String outputSeedResponse = LiteWalletJni.initfromseed(serverUri, this.params, inputSeedPhrase, birthdayString, this.saplingOutput64, this.saplingSpend64); // Thread-safe.
+        String outputSeedPhrase = parseSeedPhrase(outputSeedResponse, "initfromseed");
+        if (outputSeedPhrase == null && isWalletAlreadyExistsError(outputSeedResponse)) {
+            LOGGER.info("Clearing litewallet cache after initfromseed reported existing wallet");
+            this.deleteLitewalletCache();
+            outputSeedResponse = LiteWalletJni.initfromseed(serverUri, this.params, inputSeedPhrase, birthdayString, this.saplingOutput64, this.saplingSpend64); // Thread-safe.
+            outputSeedPhrase = parseSeedPhrase(outputSeedResponse, "initfromseed");
+        }
+        if (outputSeedPhrase == null) {
+            LOGGER.info("Unable to initialize Pirate Chain wallet: init response did not contain a seed phrase");
+            return false;
+        }
+
+        // Ensure seed phrase in response matches supplied seed phrase
+        if (inputSeedPhrase == null || !Objects.equals(inputSeedPhrase, outputSeedPhrase)) {
+            LOGGER.info("Unable to initialize Pirate Chain wallet: seed phrases do not match, or are null");
+            return false;
+        }
+
+        this.seedPhrase = outputSeedPhrase;
+        return true;
+    }
+
+    private boolean isWalletAlreadyExistsError(String response) {
+        if (response == null) {
+            return false;
+        }
+        String normalized = response.toLowerCase(Locale.ROOT);
+        return normalized.contains("wallet already exists");
+    }
+
+    private void deleteWalletCache() {
+        Path walletPath = this.getCurrentWalletPath();
+        try {
+            Files.deleteIfExists(walletPath);
+        } catch (IOException e) {
+            LOGGER.info("Unable to delete Pirate Chain wallet cache at {}: {}", walletPath, e.getMessage());
+        }
+
+        this.deleteLitewalletCache();
+    }
+
+    private void deleteLitewalletCache() {
+        Path pirateDir = this.getLitewalletDataDirectory();
+        Path defaultWalletPath = pirateDir.resolve("arrr-light-wallet.dat");
+        try {
+            Files.deleteIfExists(defaultWalletPath);
+        } catch (IOException e) {
+            LOGGER.info("Unable to delete litewallet cache at {}: {}", defaultWalletPath, e.getMessage());
+        }
+
+        Path tempDir = pirateDir.resolve("temp");
+        if (Files.isDirectory(tempDir)) {
+            try (DirectoryStream<Path> stream = Files.newDirectoryStream(tempDir, "arrr-light-wallet-*.dat")) {
+                for (Path path : stream) {
+                    try {
+                        Files.deleteIfExists(path);
+                    } catch (IOException e) {
+                        LOGGER.info("Unable to delete litewallet temp cache at {}: {}", path, e.getMessage());
+                    }
+                }
+            } catch (IOException e) {
+                LOGGER.info("Unable to scan litewallet temp directory at {}: {}", tempDir, e.getMessage());
+            }
+        }
+    }
+
+    private Path getLitewalletDataDirectory() {
+        String osName = System.getProperty("os.name");
+        String homeDir = System.getProperty("user.home");
+        Path baseDir;
+
+        if (osName != null && osName.contains("Windows")) {
+            String appData = System.getenv("APPDATA");
+            if (appData != null && !appData.isEmpty()) {
+                baseDir = Paths.get(appData, "Pirate");
+            } else if (homeDir != null && !homeDir.isEmpty()) {
+                baseDir = Paths.get(homeDir, "AppData", "Roaming", "Pirate");
+            } else {
+                baseDir = Paths.get("Pirate");
+            }
+        } else if ("Mac OS X".equals(osName)) {
+            if (homeDir != null && !homeDir.isEmpty()) {
+                baseDir = Paths.get(homeDir, "Library", "Application Support", "Pirate");
+            } else {
+                baseDir = Paths.get("Pirate");
+            }
+        } else {
+            if (homeDir != null && !homeDir.isEmpty()) {
+                baseDir = Paths.get(homeDir, ".pirate");
+            } else {
+                baseDir = Paths.get(".pirate");
+            }
+        }
+
+        PirateChain.PirateChainNet pirateChainNet = Settings.getInstance().getPirateChainNet();
+        if (pirateChainNet == PirateChain.PirateChainNet.TEST3) {
+            baseDir = baseDir.resolve("testnet3");
+        } else if (pirateChainNet == PirateChain.PirateChainNet.REGTEST) {
+            baseDir = baseDir.resolve("regtest");
+        }
+
+        return baseDir;
     }
 
     public boolean isReady() {
@@ -300,13 +429,97 @@ public class PirateWallet {
         return height >= (chainTip - 2);
     }
 
+    private JSONObject parseJsonObject(String response, String context) {
+        if (response == null) {
+            LOGGER.info("Pirate wallet {} response was null", context);
+            return null;
+        }
+
+        String trimmed = response.trim();
+        if (trimmed.isEmpty()) {
+            LOGGER.info("Pirate wallet {} response was empty", context);
+            return null;
+        }
+        if (!trimmed.startsWith("{")) {
+            LOGGER.info("Pirate wallet {} returned non-JSON response (length {})", context, trimmed.length());
+            return null;
+        }
+
+        try {
+            return new JSONObject(trimmed);
+        } catch (JSONException e) {
+            LOGGER.info("Pirate wallet {} returned invalid JSON: {}", context, e.getMessage());
+            return null;
+        }
+    }
+
+    private String parseSeedPhrase(String response, String context) {
+        if (response == null) {
+            LOGGER.info("Pirate wallet {} response was null", context);
+            return null;
+        }
+
+        String trimmed = response.trim();
+        if (trimmed.isEmpty()) {
+            LOGGER.info("Pirate wallet {} response was empty", context);
+            return null;
+        }
+
+        if (trimmed.startsWith("{")) {
+            JSONObject json = parseJsonObject(trimmed, context);
+            if (json == null) {
+                return null;
+            }
+            if (json.has("seed")) {
+                return json.getString("seed");
+            }
+            if (json.has("error")) {
+                LOGGER.info("Pirate wallet {} error: {}", context, json.optString("error"));
+                return null;
+            }
+            LOGGER.info("Pirate wallet {} response missing seed phrase", context);
+            return null;
+        }
+
+        if (trimmed.startsWith("Error:")) {
+            LOGGER.info("Pirate wallet {} error: {}", context, trimmed);
+            return null;
+        }
+
+        return trimmed;
+    }
+
+    private JSONArray parseJsonArray(String response, String context) {
+        if (response == null) {
+            LOGGER.info("Pirate wallet {} response was null", context);
+            return null;
+        }
+
+        String trimmed = response.trim();
+        if (trimmed.isEmpty()) {
+            LOGGER.info("Pirate wallet {} response was empty", context);
+            return null;
+        }
+        if (!trimmed.startsWith("[")) {
+            LOGGER.info("Pirate wallet {} returned non-JSON response (length {})", context, trimmed.length());
+            return null;
+        }
+
+        try {
+            return new JSONArray(trimmed);
+        } catch (JSONException e) {
+            LOGGER.info("Pirate wallet {} returned invalid JSON: {}", context, e.getMessage());
+            return null;
+        }
+    }
+
 
     // APIs
 
     public Integer getHeight() {
         String response = LiteWalletJni.execute("height", "");
-        JSONObject json = new JSONObject(response);
-        if (json.has("height")) {
+        JSONObject json = parseJsonObject(response, "height");
+        if (json != null && json.has("height")) {
             return json.getInt("height");
         }
         return null;
@@ -314,8 +527,8 @@ public class PirateWallet {
 
     public Integer getChainTip() {
         String response = LiteWalletJni.execute("info", "");
-        JSONObject json = new JSONObject(response);
-        if (json.has("latest_block_height")) {
+        JSONObject json = parseJsonObject(response, "info");
+        if (json != null && json.has("latest_block_height")) {
             return json.getInt("latest_block_height");
         }
         return null;
@@ -327,8 +540,8 @@ public class PirateWallet {
 
     public Boolean isEncrypted() {
         String response = LiteWalletJni.execute("encryptionstatus", "");
-        JSONObject json = new JSONObject(response);
-        if (json.has("encrypted")) {
+        JSONObject json = parseJsonObject(response, "encryptionstatus");
+        if (json != null && json.has("encrypted")) {
             return json.getBoolean("encrypted");
         }
         return null;
@@ -336,30 +549,30 @@ public class PirateWallet {
 
     public boolean doEncrypt(String key) {
         String response = LiteWalletJni.execute("encrypt", key);
-        JSONObject json = new JSONObject(response);
-        String result = json.getString("result");
-        if (json.has("result")) {
-            return (Objects.equals(result, "success"));
+        JSONObject json = parseJsonObject(response, "encrypt");
+        if (json != null && json.has("result")) {
+            String result = json.getString("result");
+            return Objects.equals(result, "success");
         }
         return false;
     }
 
     public boolean doDecrypt(String key) {
         String response = LiteWalletJni.execute("decrypt", key);
-        JSONObject json = new JSONObject(response);
-        String result = json.getString("result");
-        if (json.has("result")) {
-            return (Objects.equals(result, "success"));
+        JSONObject json = parseJsonObject(response, "decrypt");
+        if (json != null && json.has("result")) {
+            String result = json.getString("result");
+            return Objects.equals(result, "success");
         }
         return false;
     }
 
     public boolean doUnlock(String key) {
         String response = LiteWalletJni.execute("unlock", key);
-        JSONObject json = new JSONObject(response);
-        String result = json.getString("result");
-        if (json.has("result")) {
-            return (Objects.equals(result, "success"));
+        JSONObject json = parseJsonObject(response, "unlock");
+        if (json != null && json.has("result")) {
+            String result = json.getString("result");
+            return Objects.equals(result, "success");
         }
         return false;
     }
@@ -367,10 +580,10 @@ public class PirateWallet {
     public String getWalletAddress() {
         // Get balance, which also contains wallet addresses
         String response = LiteWalletJni.execute("balance", "");
-        JSONObject json = new JSONObject(response);
+        JSONObject json = parseJsonObject(response, "balance");
         String address = null;
 
-        if (json.has("z_addresses")) {
+        if (json != null && json.has("z_addresses")) {
             JSONArray z_addresses = json.getJSONArray("z_addresses");
 
             if (z_addresses != null && !z_addresses.isEmpty()) {
@@ -385,8 +598,8 @@ public class PirateWallet {
 
     public String getPrivateKey() {
         String response = LiteWalletJni.execute("export", "");
-        JSONArray addressesJson = new JSONArray(response);
-        if (!addressesJson.isEmpty()) {
+        JSONArray addressesJson = parseJsonArray(response, "export");
+        if (addressesJson != null && !addressesJson.isEmpty()) {
             JSONObject addressJson = addressesJson.getJSONObject(0);
             if (addressJson.has("private_key")) {
                 //String address = addressJson.getString("address");
@@ -408,9 +621,9 @@ public class PirateWallet {
 
         // Derive seed phrase from entropy bytes
         String mySeedResponse = LiteWalletJni.getseedphrasefromentropyb64(myEntropy64);
-        JSONObject mySeedJson =  new JSONObject(mySeedResponse);
+        JSONObject mySeedJson = parseJsonObject(mySeedResponse, "getseedphrasefromentropyb64");
         String mySeedPhrase = null;
-        if (mySeedJson.has("seedPhrase")) {
+        if (mySeedJson != null && mySeedJson.has("seedPhrase")) {
             mySeedPhrase = mySeedJson.getString("seedPhrase");
 
             return mySeedPhrase;

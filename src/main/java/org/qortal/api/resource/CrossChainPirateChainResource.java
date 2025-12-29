@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.parameters.RequestBody;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -12,6 +13,7 @@ import org.qortal.api.ApiError;
 import org.qortal.api.ApiErrors;
 import org.qortal.api.ApiExceptionFactory;
 import org.qortal.api.Security;
+import org.qortal.api.model.crosschain.PirateChainBalance;
 import org.qortal.api.model.crosschain.PirateChainSendRequest;
 import org.qortal.crosschain.ChainableServer;
 import org.qortal.crosschain.ForeignBlockchainException;
@@ -27,6 +29,7 @@ import javax.ws.rs.GET;
 import javax.ws.rs.HeaderParam;
 import javax.ws.rs.POST;
 import javax.ws.rs.Path;
+import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import java.util.List;
@@ -87,23 +90,27 @@ public class CrossChainPirateChainResource {
 		),
 		responses = {
 			@ApiResponse(
-				content = @Content(mediaType = MediaType.TEXT_PLAIN, schema = @Schema(type = "string", description = "balance (satoshis)"))
+				content = @Content(mediaType = MediaType.TEXT_PLAIN, schema = @Schema(type = "string", description = "balance (zatoshis)"))
 			)
 		}
 	)
 	@ApiErrors({ApiError.INVALID_PRIVATE_KEY, ApiError.FOREIGN_BLOCKCHAIN_NETWORK_ISSUE})
 	@SecurityRequirement(name = "apiKey")
-	public String getPirateChainWalletBalance(@HeaderParam(Security.API_KEY_HEADER) String apiKey, String entropy58) {
+	public String getPirateChainWalletBalance(@HeaderParam(Security.API_KEY_HEADER) String apiKey,
+											  @Parameter(description = "If true, return verified balance instead of total balance")
+											  @QueryParam("verified") Boolean verified,
+											  String entropy58) {
 		Security.checkApiCallAllowed(request);
 
 		PirateChain pirateChain = PirateChain.getInstance();
 
 		try {
-			Long balance = pirateChain.getWalletBalance(entropy58);
-			if (balance == null)
+			PirateChainBalance balances = pirateChain.getWalletBalances(entropy58);
+			if (balances == null)
 				throw ApiExceptionFactory.INSTANCE.createException(request, ApiError.FOREIGN_BLOCKCHAIN_NETWORK_ISSUE);
 
-			return balance.toString();
+			long balance = Boolean.TRUE.equals(verified) ? balances.verified_zbalance : balances.zbalance;
+			return Long.toString(balance);
 
 		} catch (ForeignBlockchainException e) {
 			throw ApiExceptionFactory.INSTANCE.createCustomException(request, ApiError.FOREIGN_BLOCKCHAIN_NETWORK_ISSUE, e.getMessage());

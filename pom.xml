@@ -413,11 +413,12 @@
 					<configuration>
 						<lifecycleMappingMetadata>
 							<pluginExecutions>
+
 								<pluginExecution>
 									<pluginExecutionFilter>
 										<groupId>org.apache.maven.plugins</groupId>
 										<artifactId>maven-dependency-plugin</artifactId>
-										<version>${maven-dependency-plugin.version}</version>
+										<versionRange>[0,)</versionRange>
 										<goals>
 											<goal>unpack</goal>
 										</goals>
@@ -426,11 +427,12 @@
 										<execute/>
 									</action>
 								</pluginExecution>
+
 								<pluginExecution>
 									<pluginExecutionFilter>
 										<groupId>com.google.code.maven-replacer-plugin</groupId>
 										<artifactId>replacer</artifactId>
-										<version>${replacer.version}</version>
+										<versionRange>[0,)</versionRange>
 										<goals>
 											<goal>replace</goal>
 										</goals>
@@ -439,12 +441,14 @@
 										<execute/>
 									</action>
 								</pluginExecution>
+
 							</pluginExecutions>
 						</lifecycleMappingMetadata>
 					</configuration>
 				</plugin>
 			</plugins>
 		</pluginManagement>
+
 	</build>
 <!--	Added to be able to auto-build new .proto for coins like ARRR-->
 <!--	Run to build new proto as shown below-->
