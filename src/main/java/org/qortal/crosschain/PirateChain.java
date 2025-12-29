@@ -57,6 +57,8 @@ public class PirateChain extends Bitcoiny {
 			public Collection<Server> getServers() {
 				return Arrays.asList(
 						new Server("lightd1.pirate.black", Server.ConnectionType.SSL, 443),
+						new Server("arrr.qortal.link", Server.ConnectionType.SSL, 443),
+						new Server("arrr2.qortal.link", Server.ConnectionType.SSL, 443),
 						new Server("piratelightd1.cryptoforge.cc", Server.ConnectionType.SSL, 443),
 						new Server("piratelightd2.cryptoforge.cc", Server.ConnectionType.SSL, 443));
 			}
