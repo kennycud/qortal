@@ -9,6 +9,7 @@ import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONValue;
 import org.qortal.api.resource.CrossChainUtils;
+import org.qortal.controller.Controller;
 import org.qortal.crypto.Crypto;
 import org.qortal.utils.BitTwiddling;
 
@@ -880,8 +881,8 @@ public class ElectrumX extends BitcoinyBlockchainProvider {
 	}
 
 	private void connectRemainingServers() {
-		// while there are remaining servers and less than the maximum connections
-		while( !this.remainingServers.isEmpty() && this.connections.size() < MAXIMUM_CONNECTIONS ) {
+		// if the controller is not stopping and while there are remaining servers and less than the maximum connections
+		while( !Controller.isStopping() && !this.remainingServers.isEmpty() && this.connections.size() < MAXIMUM_CONNECTIONS ) {
 			ChainableServer server = this.remainingServers.remove(RANDOM.nextInt(this.remainingServers.size()));
 
 			makeConnection(server, this.getClass().getSimpleName());

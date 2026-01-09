@@ -45,6 +45,7 @@ public class HSQLDBRepositoryFactory implements RepositoryFactory {
 		// Check no-one else is accessing database
 		try (Connection connection = DriverManager.getConnection(this.connectionUrl)) {
 			// We only need to check we can obtain connection. It will be auto-closed.
+			LOGGER.info("Checking database connection...");
 		} catch (SQLException e) {
 			Throwable cause = e.getCause();
 			if (!(cause instanceof HsqlException))
