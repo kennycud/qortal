@@ -1060,6 +1060,56 @@ public class HSQLDBDatabaseUpdates {
 							+ "PRIMARY KEY (owner), FOREIGN KEY (name) REFERENCES Names (name) ON DELETE CASCADE)");
 					break;
 
+				case 51:
+					// Add block_height and created_when to name transaction tables for better query performance
+					// This denormalizes data from Transactions table to avoid expensive JOINs during name rebuilds
+
+					// Add columns to all name transaction tables
+					stmt.execute("ALTER TABLE RegisterNameTransactions ADD block_height INTEGER");
+					stmt.execute("ALTER TABLE RegisterNameTransactions ADD created_when EpochMillis");
+
+					stmt.execute("ALTER TABLE UpdateNameTransactions ADD block_height INTEGER");
+					stmt.execute("ALTER TABLE UpdateNameTransactions ADD created_when EpochMillis");
+
+					stmt.execute("ALTER TABLE BuyNameTransactions ADD block_height INTEGER");
+					stmt.execute("ALTER TABLE BuyNameTransactions ADD created_when EpochMillis");
+
+					stmt.execute("ALTER TABLE SellNameTransactions ADD block_height INTEGER");
+					stmt.execute("ALTER TABLE SellNameTransactions ADD created_when EpochMillis");
+
+					stmt.execute("ALTER TABLE CancelSellNameTransactions ADD block_height INTEGER");
+					stmt.execute("ALTER TABLE CancelSellNameTransactions ADD created_when EpochMillis");
+
+					// Populate the new columns with data from Transactions table
+					stmt.execute("UPDATE RegisterNameTransactions AS rnt SET block_height = "
+							+ "(SELECT block_height FROM Transactions t WHERE t.signature = rnt.signature), "
+							+ "created_when = (SELECT created_when FROM Transactions t WHERE t.signature = rnt.signature)");
+
+					stmt.execute("UPDATE UpdateNameTransactions AS unt SET block_height = "
+							+ "(SELECT block_height FROM Transactions t WHERE t.signature = unt.signature), "
+							+ "created_when = (SELECT created_when FROM Transactions t WHERE t.signature = unt.signature)");
+
+					stmt.execute("UPDATE BuyNameTransactions AS bnt SET block_height = "
+							+ "(SELECT block_height FROM Transactions t WHERE t.signature = bnt.signature), "
+							+ "created_when = (SELECT created_when FROM Transactions t WHERE t.signature = bnt.signature)");
+
+					stmt.execute("UPDATE SellNameTransactions AS snt SET block_height = "
+							+ "(SELECT block_height FROM Transactions t WHERE t.signature = snt.signature), "
+							+ "created_when = (SELECT created_when FROM Transactions t WHERE t.signature = snt.signature)");
+
+					stmt.execute("UPDATE CancelSellNameTransactions AS csnt SET block_height = "
+							+ "(SELECT block_height FROM Transactions t WHERE t.signature = csnt.signature), "
+							+ "created_when = (SELECT created_when FROM Transactions t WHERE t.signature = csnt.signature)");
+
+					// Create composite indexes for efficient name-based queries with pre-sorted results
+					// These indexes allow the database to return results already sorted by block_height and timestamp
+					stmt.execute("CREATE INDEX RegisterNameTransactionsCompositeIndex ON RegisterNameTransactions (name, block_height, created_when)");
+					stmt.execute("CREATE INDEX UpdateNameTransactionsCompositeIndex ON UpdateNameTransactions (name, block_height, created_when)");
+					stmt.execute("CREATE INDEX BuyNameTransactionsCompositeIndex ON BuyNameTransactions (name, block_height, created_when)");
+					stmt.execute("CREATE INDEX SellNameTransactionsCompositeIndex ON SellNameTransactions (name, block_height, created_when)");
+					stmt.execute("CREATE INDEX CancelSellNameTransactionsCompositeIndex ON CancelSellNameTransactions (name, block_height, created_when)");
+					break;
+
 				default:
 					// nothing to do
 					return false;
