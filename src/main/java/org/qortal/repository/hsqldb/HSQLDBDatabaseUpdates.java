@@ -1108,6 +1108,43 @@ public class HSQLDBDatabaseUpdates {
 					stmt.execute("CREATE INDEX BuyNameTransactionsCompositeIndex ON BuyNameTransactions (name, block_height, created_when)");
 					stmt.execute("CREATE INDEX SellNameTransactionsCompositeIndex ON SellNameTransactions (name, block_height, created_when)");
 					stmt.execute("CREATE INDEX CancelSellNameTransactionsCompositeIndex ON CancelSellNameTransactions (name, block_height, created_when)");
+
+					// Create triggers to auto-populate block_height and created_when from Transactions table
+					// This ensures new transactions automatically get these denormalized fields populated
+					stmt.execute("CREATE TRIGGER RegisterNameTransactionsTrigger BEFORE INSERT ON RegisterNameTransactions "
+							+ "REFERENCING NEW AS newrow FOR EACH ROW "
+							+ "BEGIN ATOMIC "
+							+ "SET newrow.block_height = (SELECT block_height FROM Transactions WHERE signature = newrow.signature); "
+							+ "SET newrow.created_when = (SELECT created_when FROM Transactions WHERE signature = newrow.signature); "
+							+ "END");
+
+					stmt.execute("CREATE TRIGGER UpdateNameTransactionsTrigger BEFORE INSERT ON UpdateNameTransactions "
+							+ "REFERENCING NEW AS newrow FOR EACH ROW "
+							+ "BEGIN ATOMIC "
+							+ "SET newrow.block_height = (SELECT block_height FROM Transactions WHERE signature = newrow.signature); "
+							+ "SET newrow.created_when = (SELECT created_when FROM Transactions WHERE signature = newrow.signature); "
+							+ "END");
+
+					stmt.execute("CREATE TRIGGER BuyNameTransactionsTrigger BEFORE INSERT ON BuyNameTransactions "
+							+ "REFERENCING NEW AS newrow FOR EACH ROW "
+							+ "BEGIN ATOMIC "
+							+ "SET newrow.block_height = (SELECT block_height FROM Transactions WHERE signature = newrow.signature); "
+							+ "SET newrow.created_when = (SELECT created_when FROM Transactions WHERE signature = newrow.signature); "
+							+ "END");
+
+					stmt.execute("CREATE TRIGGER SellNameTransactionsTrigger BEFORE INSERT ON SellNameTransactions "
+							+ "REFERENCING NEW AS newrow FOR EACH ROW "
+							+ "BEGIN ATOMIC "
+							+ "SET newrow.block_height = (SELECT block_height FROM Transactions WHERE signature = newrow.signature); "
+							+ "SET newrow.created_when = (SELECT created_when FROM Transactions WHERE signature = newrow.signature); "
+							+ "END");
+
+					stmt.execute("CREATE TRIGGER CancelSellNameTransactionsTrigger BEFORE INSERT ON CancelSellNameTransactions "
+							+ "REFERENCING NEW AS newrow FOR EACH ROW "
+							+ "BEGIN ATOMIC "
+							+ "SET newrow.block_height = (SELECT block_height FROM Transactions WHERE signature = newrow.signature); "
+							+ "SET newrow.created_when = (SELECT created_when FROM Transactions WHERE signature = newrow.signature); "
+							+ "END");
 					break;
 
 				default:
