@@ -958,6 +958,7 @@ public class HSQLDBDatabaseUpdates {
 					stmt.execute("CREATE INDEX BuyNameNameIndex ON BuyNameTransactions (name)");
 					// For looking up sell name transactions based on name
 					stmt.execute("CREATE INDEX SellNameNameIndex ON SellNameTransactions (name)");
+					stmt.execute("CREATE INDEX CancelSellNameNameIndex ON CancelSellNameTransactions (name)");
 					break;
 
 				case 41:
