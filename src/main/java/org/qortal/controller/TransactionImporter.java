@@ -266,6 +266,13 @@ public class TransactionImporter extends Thread {
             return;
         }
 
+        // discard general chat transactions, chat transactions with no group and no recipient
+        sigValidTransactions.removeIf(
+                transactionData -> transactionData.getType() == Transaction.TransactionType.CHAT &&
+                        transactionData.getTxGroupId() == 0 &&
+                        transactionData.getRecipient() == null
+        );
+
         if (Synchronizer.getInstance().isSyncRequested() || Synchronizer.getInstance().isSynchronizing()) {
             // Prioritize syncing, and don't attempt to lock
             return;
