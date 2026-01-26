@@ -160,6 +160,7 @@ public class HSQLDBArbitraryRepository implements ArbitraryRepository {
 
 	@Override
 	public List<ArbitraryTransactionData> getArbitraryTransactions(String name, Service service, String identifier, long since) throws DataException {
+		// Use ArbitraryTransactions.created_when for filtering and ordering to utilize the composite index (name, created_when)
 		String sql = "SELECT type, reference, signature, creator, created_when, fee, " +
 				"tx_group_id, block_height, approval_status, approval_height, " +
 				"version, nonce, service, size, is_data_raw, data, metadata_hash, " +
@@ -167,7 +168,7 @@ public class HSQLDBArbitraryRepository implements ArbitraryRepository {
 				"JOIN Transactions USING (signature) " +
 				"WHERE lower(name) = ? AND service = ?" +
 				"AND (identifier = ? OR (identifier IS NULL AND ? IS NULL))" +
-				"AND created_when >= ? ORDER BY created_when ASC";
+				"AND ArbitraryTransactions.created_when >= ? ORDER BY ArbitraryTransactions.created_when ASC";
 		List<ArbitraryTransactionData> arbitraryTransactionData = new ArrayList<>();
 
 		try (ResultSet resultSet = this.repository.checkedExecute(sql, name.toLowerCase(), service.value, identifier, identifier, since)) {
@@ -229,13 +230,14 @@ public class HSQLDBArbitraryRepository implements ArbitraryRepository {
 
 	@Override
 	public List<ArbitraryTransactionData> getLatestArbitraryTransactions() throws DataException {
+		// Use ArbitraryTransactions.created_when for filtering and ordering to utilize the composite index (name, created_when)
 		String sql = "SELECT type, reference, signature, creator, created_when, fee, " +
 				"tx_group_id, block_height, approval_status, approval_height, " +
 				"version, nonce, service, size, is_data_raw, data, metadata_hash, " +
 				"name, identifier, update_method, secret, compression FROM ArbitraryTransactions " +
 				"JOIN Transactions USING (signature) " +
 				"WHERE name IS NOT NULL " +
-				"ORDER BY created_when DESC";
+				"ORDER BY ArbitraryTransactions.created_when DESC";
 		List<ArbitraryTransactionData> arbitraryTransactionData = new ArrayList<>();
 
 		try (ResultSet resultSet = this.repository.checkedExecute(sql)) {
@@ -298,13 +300,14 @@ public class HSQLDBArbitraryRepository implements ArbitraryRepository {
 
 	@Override
 	public List<ArbitraryTransactionData> getLatestArbitraryTransactionsByName( String name ) throws DataException {
+		// Use ArbitraryTransactions.created_when for ordering to utilize the composite index (name, created_when)
 		String sql = "SELECT type, reference, signature, creator, created_when, fee, " +
 				"tx_group_id, block_height, approval_status, approval_height, " +
 				"version, nonce, service, size, is_data_raw, data, metadata_hash, " +
 				"name, identifier, update_method, secret, compression FROM ArbitraryTransactions " +
 				"JOIN Transactions USING (signature) " +
 				"WHERE name = ? " +
-				"ORDER BY created_when DESC";
+				"ORDER BY ArbitraryTransactions.created_when DESC";
 		List<ArbitraryTransactionData> arbitraryTransactionData = new ArrayList<>();
 
 		try (ResultSet resultSet = this.repository.checkedExecute(sql, name)) {
@@ -386,7 +389,8 @@ public class HSQLDBArbitraryRepository implements ArbitraryRepository {
 			sql.append(method.value);
 		}
 
-		sql.append(" ORDER BY created_when");
+		// Use ArbitraryTransactions.created_when for ORDER BY to utilize the composite index (name, created_when)
+		sql.append(" ORDER BY ArbitraryTransactions.created_when");
 
 		if (firstNotLast) {
 			sql.append(" ASC");
@@ -472,7 +476,8 @@ public class HSQLDBArbitraryRepository implements ArbitraryRepository {
 			sql.append(" WHERE name IS NOT NULL");
 		}
 
-		sql.append(" ORDER BY created_when");
+		// Use ArbitraryTransactions.created_when for ORDER BY to utilize the composite index (name, created_when)
+		sql.append(" ORDER BY ArbitraryTransactions.created_when");
 
 		if (reverse != null && reverse) {
 			sql.append(" DESC");

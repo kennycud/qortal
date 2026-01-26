@@ -1155,6 +1155,32 @@ public class HSQLDBDatabaseUpdates {
 					stmt.execute("CREATE INDEX TransactionBlockSequenceIndex ON Transactions (block_sequence)");
 					break;
 
+				case 53:
+					// Add created_when to ArbitraryTransactions for better query performance
+					// This denormalizes data from Transactions table to avoid expensive JOINs
+					// during needsArbitraryResourcesCacheRebuild() check
+					LOGGER.info("Adding created_when column to ArbitraryTransactions - this can take a while...");
+					stmt.execute("ALTER TABLE ArbitraryTransactions ADD created_when EpochMillis");
+
+					// Populate the new column with data from Transactions table
+					LOGGER.info("Populating created_when in ArbitraryTransactions - this can take a while...");
+					stmt.execute("UPDATE ArbitraryTransactions AS at SET created_when = "
+							+ "(SELECT created_when FROM Transactions t WHERE t.signature = at.signature)");
+
+					// Create composite index for efficient queries with name filtering and timestamp ordering
+					// This optimizes queries like "WHERE name IS NOT NULL ORDER BY created_when"
+					LOGGER.info("Adding composite index on ArbitraryTransactions - this can take a while...");
+					stmt.execute("CREATE INDEX ArbitraryTransactionsCompositeIndex ON ArbitraryTransactions (name, created_when)");
+
+					// Create trigger to auto-populate created_when from Transactions table
+					// This ensures new transactions automatically get this denormalized field populated
+					stmt.execute("CREATE TRIGGER ArbitraryTransactionsTrigger BEFORE INSERT ON ArbitraryTransactions "
+							+ "REFERENCING NEW AS newrow FOR EACH ROW "
+							+ "BEGIN ATOMIC "
+							+ "SET newrow.created_when = (SELECT created_when FROM Transactions WHERE signature = newrow.signature); "
+							+ "END");
+					break;
+
 				default:
 					// nothing to do
 					return false;
