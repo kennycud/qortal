@@ -178,7 +178,7 @@ public class ArbitraryDataFileManager extends Thread {
 
                 // We have all the chunks for this transaction, so we should invalidate the transaction's name's
                 // data cache so that it is rebuilt the next time we serve it
-                ArbitraryDataManager.getInstance().invalidateCache(arbitraryTransactionData);
+                ArbitraryDataManager.getInstance().invalidateCache(arbitraryTransactionData, true);
             }
         }
 
