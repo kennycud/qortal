@@ -129,9 +129,19 @@ public class BlockPruner implements Runnable {
 						LOGGER.warn("Block Pruning interrupted. Trying again. Report this error immediately to the developers.", e);
 					}
 				} catch (Exception e) {
+					// Check if this is a shutdown-related exception (closed connection)
+					if (Controller.isStopping()) {
+						LOGGER.debug("Block Pruning encountered exception during shutdown, stopping gracefully");
+						return;
+					}
 					LOGGER.warn("Block Pruning stopped working. Trying again. Report this error immediately to the developers.", e);
 				}
 			} catch(Exception e){
+				// Check if this is a shutdown-related exception
+				if (Controller.isStopping()) {
+					LOGGER.info("Block Pruning Shutting Down");
+					return;
+				}
 				LOGGER.error("Block Pruning is not working! Not trying again. Restart ASAP. Report this error immediately to the developers.", e);
 			}
 		}
