@@ -1060,9 +1060,17 @@ public class HSQLDBDatabaseUpdates {
 							+ "PRIMARY KEY (owner), FOREIGN KEY (name) REFERENCES Names (name) ON DELETE CASCADE)");
 					break;
 
-				default:
-					// nothing to do
-					return false;
+
+				case 51:
+					// Add covering index for account balances query optimization
+					// This index allows the query "SELECT account, balance FROM AccountBalances WHERE asset_id = 0"
+					// to be satisfied entirely from the index without accessing the table
+					stmt.execute("CREATE INDEX AccountBalancesAssetAccountBalanceIndex ON AccountBalances (asset_id, account, balance)");
+					break;
+
+			default:
+				// nothing to do
+				return false;
 			}
 		}
 
