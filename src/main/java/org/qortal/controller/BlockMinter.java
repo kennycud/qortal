@@ -350,7 +350,7 @@ public class BlockMinter extends Thread {
 							}
 
 							try {
-								if (this.higherWeightChainExists(repository, bestWeight)) {
+								if (!Controller.isStopping() && this.higherWeightChainExists(repository, bestWeight)) {
 
 									// Check if the base block has updated since the last time we were here
 									if (parentSignatureForLastLowWeightBlock == null || timeOfLastLowWeightBlock == null ||
