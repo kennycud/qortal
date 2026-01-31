@@ -1068,6 +1068,14 @@ public class HSQLDBDatabaseUpdates {
 					stmt.execute("CREATE INDEX AccountBalancesAssetAccountBalanceIndex ON AccountBalances (asset_id, account, balance)");
 					break;
 
+			case 52:
+				// Add index on block_sequence to optimize needsTransactionSequenceRebuild() check
+				// The existing composite index (block_height, block_sequence) doesn't efficiently handle
+				// queries like "WHERE block_height IS NOT NULL AND block_sequence IS NULL"
+				LOGGER.info("Adding index on Transactions.block_sequence - this can take a while...");
+				stmt.execute("CREATE INDEX TransactionBlockSequenceIndex ON Transactions (block_sequence)");
+				break;
+
 			default:
 				// nothing to do
 				return false;
