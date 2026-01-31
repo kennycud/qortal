@@ -4,6 +4,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.qortal.controller.arbitrary.ArbitraryDataFileManager;
 import org.qortal.network.Network;
+import org.qortal.network.NetworkData;
 import org.qortal.network.Peer;
 import org.qortal.network.PeerAddress;
 import org.qortal.settings.Settings;
@@ -11,6 +12,7 @@ import org.qortal.utils.ExecuteProduceConsume.Task;
 import org.qortal.utils.NTP;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
@@ -18,11 +20,13 @@ import java.util.List;
 
 public class ChannelAcceptTask implements Task {
     private static final Logger LOGGER = LogManager.getLogger(ChannelAcceptTask.class);
+    private final int networkType;
 
     private final ServerSocketChannel serverSocketChannel;
 
-    public ChannelAcceptTask(ServerSocketChannel serverSocketChannel) {
+    public ChannelAcceptTask(ServerSocketChannel serverSocketChannel, int network) {
         this.serverSocketChannel = serverSocketChannel;
+        this.networkType = network;
     }
 
     @Override
@@ -33,6 +37,7 @@ public class ChannelAcceptTask implements Task {
     @Override
     public void perform() throws InterruptedException {
         Network network = Network.getInstance();
+        NetworkData datanetwork = NetworkData.getInstance();
         SocketChannel socketChannel;
 
         try {
@@ -44,7 +49,10 @@ public class ChannelAcceptTask implements Task {
 
             socketChannel = serverSocketChannel.accept();
 
-            network.setInterestOps(serverSocketChannel, SelectionKey.OP_ACCEPT);
+            if (this.networkType == Peer.NETWORKDATA)
+                datanetwork.setInterestOps(serverSocketChannel, SelectionKey.OP_ACCEPT);
+            else
+                network.setInterestOps(serverSocketChannel, SelectionKey.OP_ACCEPT);
         } catch (IOException e) {
             return;
         }
@@ -55,15 +63,19 @@ public class ChannelAcceptTask implements Task {
         }
 
         PeerAddress address = PeerAddress.fromSocket(socketChannel.socket());
-        List<String> fixedNetwork = Settings.getInstance().getFixedNetwork();
-        if (fixedNetwork != null && !fixedNetwork.isEmpty() && network.ipNotInFixedList(address, fixedNetwork)) {
-            try {
-                LOGGER.debug("Connection discarded from peer {} as not in the fixed network list", address);
-                socketChannel.close();
-            } catch (IOException e) {
-                // IGNORE
+
+        // Only check fixed network for NETWORK
+        if(networkType == Peer.NETWORK) {
+            List<String> fixedNetwork = Settings.getInstance().getFixedNetwork();
+            if (fixedNetwork != null && !fixedNetwork.isEmpty() && network.ipNotInFixedList(address, fixedNetwork)) {
+                try {
+                    LOGGER.debug("Connection discarded from peer {} as not in the fixed network list", address);
+                    socketChannel.close();
+                } catch (IOException e) {
+                    // IGNORE
+                }
+                return;
             }
-            return;
         }
 
         // We allow up to a maximum of maxPeers connected peers, of which...
@@ -76,7 +88,7 @@ public class ChannelAcceptTask implements Task {
         int maxRegularPeers = maxPeers - maxDataPeers;
 
         // Next, obtain the current state
-        int connectedDataPeerCount = Network.getInstance().getImmutableConnectedDataPeers().size();
+        int connectedDataPeerCount = datanetwork.getImmutableConnectedPeers().size();
         int connectedRegularPeerCount = Network.getInstance().getImmutableConnectedNonDataPeers().size();
 
         // Check if the incoming connection should be considered a data or regular peer
@@ -119,12 +131,17 @@ public class ChannelAcceptTask implements Task {
 
             LOGGER.debug("Connection accepted from peer {}", address);
 
-            newPeer = new Peer(socketChannel);
+            newPeer = new Peer(socketChannel, this.networkType);
+
             if (isDataPeer) {
                 newPeer.setMaxConnectionAge(Settings.getInstance().getMaxDataPeerConnectionTime() * 1000L);
             }
             newPeer.setIsDataPeer(isDataPeer);
-            network.addConnectedPeer(newPeer);
+
+            if (this.networkType == Peer.NETWORK)
+                network.addConnectedPeer(newPeer);
+            else
+                datanetwork.addConnectedPeer(newPeer);
 
         } catch (IOException e) {
             if (socketChannel.isOpen()) {
@@ -137,7 +154,9 @@ public class ChannelAcceptTask implements Task {
             }
             return;
         }
-
-        network.onPeerReady(newPeer);
+        if (this.networkType == Peer.NETWORKDATA)
+            datanetwork.onPeerReady(newPeer);
+        else
+            network.onPeerReady(newPeer);
     }
 }

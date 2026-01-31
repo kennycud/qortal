@@ -22,6 +22,7 @@ import org.qortal.controller.Synchronizer.SynchronizationResult;
 import org.qortal.data.block.BlockSummaryData;
 import org.qortal.data.network.PeerData;
 import org.qortal.network.Network;
+import org.qortal.network.NetworkData;
 import org.qortal.network.Peer;
 import org.qortal.network.PeerAddress;
 import org.qortal.repository.DataException;
@@ -48,6 +49,7 @@ public class PeersResource {
 	HttpServletRequest request;
 
 	@GET
+	@Produces(MediaType.APPLICATION_JSON)
 	@Operation(
 		summary = "Fetch list of connected peers",
 		responses = {
@@ -89,6 +91,147 @@ public class PeersResource {
 	})
 	public List<PeerData> getKnownPeers() {
 		return Network.getInstance().getAllKnownPeers();
+	}
+
+	@GET
+	@Path("/data")
+	@Operation(
+			summary = "Fetch list of peers on the Data Network",
+			responses = {
+					@ApiResponse(
+							content = @Content(
+									mediaType = MediaType.APPLICATION_JSON,
+									array = @ArraySchema(
+											schema = @Schema(
+													implementation = ConnectedPeer.class
+											)
+									)
+							)
+					)
+			}
+	)
+	public List<ConnectedPeer> getDataPeers() {
+		return NetworkData.getInstance().getImmutableConnectedPeers().stream().map(ConnectedPeer::new).collect(Collectors.toList());
+	}
+
+	@POST
+	@Path("/data")
+	@Operation(
+		summary = "Add new peer address to Data Network",
+		description = "Specify a new peer using hostname, IPv4 address, IPv6 address and optional port number preceeded with colon (e.g. :9084)<br>"
+				+ "Note that IPv6 literal addresses must be surrounded with brackets.<br>" + "Examples:<br><ul>" + "<li>some-peer.example.com</li>"
+				+ "<li>some-peer.example.com:9084</li>" + "<li>10.1.2.3</li>" + "<li>10.1.2.3:9084</li>" + "<li>[2001:d8b::1]</li>"
+				+ "<li>[2001:d8b::1]:9084</li>" + "</ul>",
+		requestBody = @RequestBody(
+			required = true,
+			content = @Content(
+				mediaType = MediaType.TEXT_PLAIN,
+				schema = @Schema(
+					type = "string",
+					example = "some-peer.example.com"
+				)
+			)
+		),
+		responses = {
+			@ApiResponse(
+				description = "true if accepted",
+				content = @Content(
+					schema = @Schema(
+						type = "string"
+					)
+				)
+			)
+		}
+	)
+	@ApiErrors({
+		ApiError.INVALID_NETWORK_ADDRESS, ApiError.REPOSITORY_ISSUE
+	})
+	@SecurityRequirement(name = "apiKey")
+	public String addDataPeer(@HeaderParam(Security.API_KEY_HEADER) String apiKey, String address) {
+		Security.checkApiCallAllowed(request);
+
+		final Long addedWhen = NTP.getTime();
+		if (addedWhen == null)
+			throw ApiExceptionFactory.INSTANCE.createException(request, ApiError.NO_TIME_SYNC);
+
+		try {
+			PeerAddress peerAddress = PeerAddress.fromString(address);
+
+			List<PeerAddress> newPeerAddresses = new ArrayList<>(1);
+			newPeerAddresses.add(peerAddress);
+
+			boolean addResult = NetworkData.getInstance().mergePeers("API", addedWhen, newPeerAddresses);
+
+			if (addResult) {
+				// Find the peer we just added and connect immediately
+				PeerData peerData = NetworkData.getInstance().getAllKnownPeers().stream()
+						.filter(pd -> pd.getAddress().equals(peerAddress))
+						.findFirst()
+						.orElse(null);
+
+				if (peerData != null) {
+					Peer newPeer = new Peer(peerData, Peer.NETWORKDATA);
+					newPeer.setIsDataPeer(true);
+					
+					// Force connect immediately (same pattern as ArbitraryDataFileRequestThread)
+					NetworkData.getInstance().forceConnectPeer(newPeer);
+				}
+			}
+
+			return addResult ? "true" : "false";
+		} catch (IllegalArgumentException e) {
+			throw ApiExceptionFactory.INSTANCE.createException(request, ApiError.INVALID_NETWORK_ADDRESS);
+		} catch (DataException e) {
+			throw ApiExceptionFactory.INSTANCE.createException(request, ApiError.REPOSITORY_ISSUE, e);
+		}
+	}
+
+	@DELETE
+	@Path("/data")
+	@Operation(
+		summary = "Remove peer address from Data Network",
+		description = "Specify peer to be removed using hostname, IPv4 address, IPv6 address and optional port number preceeded with colon (e.g. :9084)<br>"
+				+ "Note that IPv6 literal addresses must be surrounded with brackets.<br>" + "Examples:<br><ul>" + "<li>some-peer.example.com</li>"
+				+ "<li>some-peer.example.com:9084</li>" + "<li>10.1.2.3</li>" + "<li>10.1.2.3:9084</li>" + "<li>[2001:d8b::1]</li>"
+				+ "<li>[2001:d8b::1]:9084</li>" + "</ul>",
+		requestBody = @RequestBody(
+			required = true,
+			content = @Content(
+				mediaType = MediaType.TEXT_PLAIN,
+				schema = @Schema(
+					type = "string",
+					example = "some-peer.example.com"
+				)
+			)
+		),
+		responses = {
+			@ApiResponse(
+				description = "true if removed, false if not found",
+				content = @Content(
+					schema = @Schema(
+						type = "string"
+					)
+				)
+			)
+		}
+	)
+	@ApiErrors({
+		ApiError.INVALID_NETWORK_ADDRESS, ApiError.REPOSITORY_ISSUE
+	})
+	@SecurityRequirement(name = "apiKey")
+	public String removeDataPeer(@HeaderParam(Security.API_KEY_HEADER) String apiKey, String address) {
+		Security.checkApiCallAllowed(request);
+
+		try {
+			PeerAddress peerAddress = PeerAddress.fromString(address);
+
+			boolean wasKnown = NetworkData.getInstance().forgetPeer(peerAddress);
+			return wasKnown ? "true" : "false";
+		} catch (IllegalArgumentException e) {
+			throw ApiExceptionFactory.INSTANCE.createException(request, ApiError.INVALID_NETWORK_ADDRESS);
+		} catch (DataException e) {
+			throw ApiExceptionFactory.INSTANCE.createException(request, ApiError.REPOSITORY_ISSUE, e);
+		}
 	}
 
 	@GET

@@ -41,6 +41,26 @@ public class CrossChainDigibyteResource {
 	@Context
 	HttpServletRequest request;
 
+    @GET
+    @Path("/status")
+    @Operation(
+        summary = "Returns true if the wallet is enabled",
+        description = "Returns the status of the wallet as a boolean",
+        responses = {
+           @ApiResponse(
+              content = @Content(
+                 schema = @Schema(
+                    type = "boolean"
+                 )
+              )
+           )
+        }
+    )
+    public boolean getDigibyteStatus() {
+        Digibyte digibyte = Digibyte.getInstance();
+        return digibyte != null;
+    }
+
 	@GET
 	@Path("/height")
 	@Operation(

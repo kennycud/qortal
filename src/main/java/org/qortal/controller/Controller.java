@@ -33,6 +33,7 @@ import org.qortal.globalization.Translator;
 import org.qortal.gui.Gui;
 import org.qortal.gui.SysTray;
 import org.qortal.network.Network;
+import org.qortal.network.NetworkData;
 import org.qortal.network.Peer;
 import org.qortal.network.PeerAddress;
 import org.qortal.network.message.*;
@@ -75,6 +76,8 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+
+import static org.qortal.network.Peer.FETCH_BLOCKS_TIMEOUT;
 
 public class Controller extends Thread {
 
@@ -124,7 +127,7 @@ public class Controller extends Thread {
 	private long repositoryBackupTimestamp = startTime; // ms
 	private long repositoryMaintenanceTimestamp = startTime; // ms
 	private long repositoryCheckpointTimestamp = startTime; // ms
-	private long prunePeersTimestamp = startTime; // ms
+	private long prunePeersTimestamp = startTime + 120000; // ms
 	private long ntpCheckTimestamp = startTime; // ms
 	private long deleteExpiredTimestamp = startTime + DELETE_EXPIRED_INTERVAL; // ms
 
@@ -146,7 +149,19 @@ public class Controller extends Thread {
 			public GetBlockMessageStats() {
 			}
 		}
-		public GetBlockMessageStats getBlockMessageStats = new GetBlockMessageStats();
+        public GetBlockMessageStats getBlockMessageStats = new GetBlockMessageStats();
+
+        public static class GetBlocksMessageStats {
+            public AtomicLong requests = new AtomicLong();
+            public AtomicLong cacheHits = new AtomicLong();
+            public AtomicLong unknownBlocks = new AtomicLong();
+            public AtomicLong cacheFills = new AtomicLong();
+            public AtomicLong fullyFromCache = new AtomicLong();
+
+            public GetBlocksMessageStats() {
+            }
+        }
+        public GetBlocksMessageStats getBlocksMessageStats = new GetBlocksMessageStats();
 
 		public static class GetBlockSummariesStats {
 			public AtomicLong requests = new AtomicLong();
@@ -432,11 +447,13 @@ public class Controller extends Thread {
 				LOGGER.info("Db Cache Disabled");
 			}
 
-			LOGGER.info("Starting Arbitrary Indexing...");
-			ArbitraryIndexUtils.startCaching(
-				Settings.getInstance().getArbitraryIndexingPriority(),
-				Settings.getInstance().getArbitraryIndexingFrequency()
-			);
+			if (Settings.getInstance().getArbitraryIndexingPriority() > 0 ) {
+				LOGGER.info("Arbitrary Indexing Starting ...");
+				ArbitraryIndexUtils.startCaching(
+						Settings.getInstance().getArbitraryIndexingPriority(),
+						Settings.getInstance().getArbitraryIndexingFrequency()
+				);
+			}
 
 			if( Settings.getInstance().isBalanceRecorderEnabled() ) {
 				Optional<HSQLDBBalanceRecorder> recorder = HSQLDBBalanceRecorder.getInstance();
@@ -446,7 +463,7 @@ public class Controller extends Thread {
 					recorder.get().start();
 				}
 				else {
-					LOGGER.info("Balance Recorder won't start.");
+					LOGGER.debug("Balance Recorder won't start.");
 				}
 			}
 			else {
@@ -469,6 +486,8 @@ public class Controller extends Thread {
 		if (!Settings.getInstance().isLite()) {
 
 			// Rebuild Names table and check database integrity (if enabled)
+			// @toDo : We rebuild this table everytime?  This is not sustainable as we age, need a
+			//  	   table that tracks completed features such as this to determine if it needs to run
 			NamesDatabaseIntegrityCheck namesDatabaseIntegrityCheck = new NamesDatabaseIntegrityCheck();
 			LOGGER.info("Rebuilding all names...");
 			namesDatabaseIntegrityCheck.rebuildAllNames();
@@ -585,7 +604,9 @@ public class Controller extends Thread {
 		}
 
 		LOGGER.info("Starting wallets");
-		PirateChainWalletController.getInstance().start();
+        if( Settings.getInstance().isWalletEnabled("ARRR")) {
+            PirateChainWalletController.getInstance().start();
+        }
 
 		LOGGER.info(String.format("Starting API on port %d", Settings.getInstance().getApiPort()));
 		try {
@@ -758,7 +779,7 @@ public class Controller extends Thread {
 		final long repositoryBackupInterval = Settings.getInstance().getRepositoryBackupInterval();
 		final long repositoryCheckpointInterval = Settings.getInstance().getRepositoryCheckpointInterval();
 		long repositoryMaintenanceInterval = getRandomRepositoryMaintenanceInterval();
-		final long prunePeersInterval = 5 * 60 * 1000L; // Every 5 minutes
+		final long prunePeersInterval = 90 * 1000L; // Every 90 seconds (1.5 minutes)
 
 		// Start executor service for trimming or pruning
 		PruneManager.getInstance().start();
@@ -778,7 +799,6 @@ public class Controller extends Thread {
 				// Check NTP status
 				if (now >= ntpCheckTimestamp) {
 					Long ntpTime = NTP.getTime();
-
 					if (ntpTime != null) {
 						if (ntpTime != now)
 							// Only log if non-zero offset
@@ -862,8 +882,25 @@ public class Controller extends Thread {
 					try {
 						LOGGER.debug("Pruning peers...");
 						Network.getInstance().prunePeers();
+						NetworkData.getInstance().prunePeers();
 					} catch (DataException e) {
 						LOGGER.warn(String.format("Repository issue when trying to prune peers: %s", e.getMessage()));
+					}
+					
+					// Check EPC health to detect critical thread issues
+					try {
+						ExecuteProduceConsume.StatsSnapshot networkStats = Network.getInstance().getStatsSnapshot();
+						ExecuteProduceConsume.StatsSnapshot networkDataStats = NetworkData.getInstance().getStatsSnapshot();
+						
+						// CRITICAL: Warn if either EPC has no active threads
+						if (networkStats.activeThreadCount == 0) {
+							LOGGER.error("CRITICAL: Network EPC has 0 active threads! Network processing has stopped!");
+						}
+						if (networkDataStats.activeThreadCount == 0) {
+							LOGGER.error("CRITICAL: NetworkData EPC has 0 active threads! Data network processing has stopped!");
+						}
+					} catch (Exception e) {
+						LOGGER.warn("Failed to get EPC stats: {}", e.getMessage());
 					}
 				}
 
@@ -1130,23 +1167,27 @@ public class Controller extends Thread {
 				ApiService.getInstance().stop();
 
 				LOGGER.info("Shutting down wallets");
-				PirateChainWalletController.getInstance().shutdown();
+				PirateChainWalletController pirateWalletController = PirateChainWalletController.getInstance();
+				if (pirateWalletController != null) {
+					pirateWalletController.shutdown();
+				}
 
 				if (Settings.getInstance().isAutoUpdateEnabled()) {
 					LOGGER.info("Shutting down auto-update");
 					AutoUpdate.getInstance().shutdown();
 				}
 
-				// Arbitrary data controllers
-				LOGGER.info("Shutting down arbitrary-transaction controllers");
-				ArbitraryDataManager.getInstance().shutdown();
-				ArbitraryDataFileManager.getInstance().shutdown();
-				ArbitraryDataCacheManager.getInstance().shutdown();
-				ArbitraryDataBuildManager.getInstance().shutdown();
-				ArbitraryDataCleanupManager.getInstance().shutdown();
-				ArbitraryDataStorageManager.getInstance().shutdown();
-				ArbitraryDataRenderManager.getInstance().shutdown();
-				ArbitraryDataHostMonitor.getInstance().shutdown();
+			// Arbitrary data controllers
+			LOGGER.info("Shutting down arbitrary-transaction controllers");
+			ArbitraryDataManager.getInstance().shutdown();
+			ArbitraryDataFileManager.getInstance().shutdown();
+			ArbitraryDataFileListManager.getInstance().shutdown();
+			ArbitraryDataCacheManager.getInstance().shutdown();
+			ArbitraryDataBuildManager.getInstance().shutdown();
+			ArbitraryDataCleanupManager.getInstance().shutdown();
+			ArbitraryDataStorageManager.getInstance().shutdown();
+			ArbitraryDataRenderManager.getInstance().shutdown();
+			ArbitraryDataHostMonitor.getInstance().shutdown();
 
 				LOGGER.info("Shutting down online accounts manager");
 				OnlineAccountsManager.getInstance().shutdown();
@@ -1173,6 +1214,7 @@ public class Controller extends Thread {
 
 				LOGGER.info("Shutting down networking");
 				Network.getInstance().shutdown();
+				NetworkData.getInstance().shutdown();
 
 				LOGGER.info("Shutting down controller");
 				this.interrupt();
@@ -1469,6 +1511,10 @@ public class Controller extends Thread {
 				onNetworkGetBlockMessage(peer, message);
 				break;
 
+            case GET_BLOCKS:
+                onNetworkGetBlocksMessage(peer, message);
+                break;
+
 			case GET_BLOCK_SUMMARIES:
 				onNetworkGetBlockSummariesMessage(peer, message);
 				break;
@@ -1524,14 +1570,18 @@ public class Controller extends Thread {
 			case ARBITRARY_DATA_FILE_LIST:
 				ArbitraryDataFileListManager.getInstance().onNetworkArbitraryDataFileListMessage(peer, message);
 				break;
+// @ToDo: Future Message Type to get an entire list of file Hashes
+//			case GET_ARBITRARY_DATA_FILES:
+//				ArbitraryDataFileManager.getInstance().onNetworkGetArbitraryDataFilesMessage(peer, message);
+//				break;
 
 			case GET_ARBITRARY_DATA_FILE:
 				ArbitraryDataFileManager.getInstance().onNetworkGetArbitraryDataFileMessage(peer, message);
 				break;
 
-			case GET_ARBITRARY_DATA_FILE_LIST:
-				ArbitraryDataFileListManager.getInstance().onNetworkGetArbitraryDataFileListMessage(peer, message);
-				break;
+		case GET_ARBITRARY_DATA_FILE_LIST:
+			ArbitraryDataFileListManager.getInstance().onNetworkGetArbitraryDataFileListMessage(peer, message);
+			break;
 
 			case ARBITRARY_SIGNATURES:
 				// Not currently supported
@@ -1773,6 +1823,59 @@ public class Controller extends Thread {
 			LOGGER.error(e.getMessage(), e);
 		}
 	}
+
+    private void onNetworkGetBlocksMessage(Peer peer, Message message) {
+        GetBlocksMessage getBlocksMessage = (GetBlocksMessage) message;
+        byte[] parentSignature = getBlocksMessage.getParentSignature();
+        this.stats.getBlocksMessageStats.requests.incrementAndGet();
+
+        try (final Repository repository = RepositoryManager.getRepository()) {
+
+            // If peer's parent signature matches our latest block signature
+            // then we can short-circuit with an empty response
+            BlockData chainTip = getChainTip();
+            if (chainTip != null && Arrays.equals(parentSignature, chainTip.getSignature())) {
+                Message blocksMessage = new BlocksMessage(Collections.emptyList());
+                blocksMessage.setId(message.getId());
+                if (!peer.sendMessage(blocksMessage))
+                    peer.disconnect("failed to send blocks");
+
+                return;
+            }
+
+            // Ensure that we don't serve more blocks than the amount specified in the settings
+            // Serializing multiple blocks is very slow, so by default we are using a low limit
+            int blockLimitPerRequest = Settings.getInstance().getMaxBlocksPerResponse();
+            int untrimmedBlockLimitPerRequest = Settings.getInstance().getMaxBlocksPerResponse();
+            int numberRequested = Math.min(blockLimitPerRequest, getBlocksMessage.getNumberRequested());
+
+            List<Block> blocks = new ArrayList<>();
+            BlockData blockData = repository.getBlockRepository().fromReference(parentSignature);
+
+            while (blockData != null && blocks.size() < numberRequested) {
+                // If we're dealing with untrimmed blocks, ensure we don't go above the untrimmedBlockLimitPerRequest
+                if (blockData.isTrimmed() == false && blocks.size() >= untrimmedBlockLimitPerRequest) {
+                    break;
+                }
+                Block block = new Block(repository, blockData);
+                blocks.add(block);
+                blockData = repository.getBlockRepository().fromReference(blockData.getSignature());
+            }
+
+            Message blocksMessage = new BlocksMessage(blocks);
+            blocksMessage.setId(message.getId());
+            try {
+                if (!peer.sendMessageWithTimeout(blocksMessage, FETCH_BLOCKS_TIMEOUT))
+                    peer.disconnect("failed to send blocks");
+            } catch (java.io.IOException e) {
+                // Socket closed - peer already disconnected
+                LOGGER.debug("Socket closed while sending blocks to peer {}: {}", peer, e.getMessage());
+            }
+
+        } catch (DataException e) {
+            LOGGER.error(String.format("Repository issue while sending blocks after %s to peer %s", Base58.encode(parentSignature), peer), e);
+        }
+    }
 
 	private void onNetworkGetBlockSummariesMessage(Peer peer, Message message) {
 		GetBlockSummariesMessage getBlockSummariesMessage = (GetBlockSummariesMessage) message;
