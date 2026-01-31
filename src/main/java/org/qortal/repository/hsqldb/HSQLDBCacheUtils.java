@@ -841,21 +841,19 @@ public class HSQLDBCacheUtils {
 
     public static List<AccountBalanceData> getAccountBalances(Repository repository) {
 
-        StringBuilder sql = new StringBuilder();
-
-        sql.append("SELECT account, balance, height ");
-        sql.append("FROM ACCOUNTBALANCES as balances ");
-        sql.append("JOIN (SELECT height FROM BLOCKS ORDER BY height DESC LIMIT 1) AS max_height ON true ");
-        sql.append("WHERE asset_id=0");
-
         List<AccountBalanceData> data = new ArrayList<>();
 
-        LOGGER.info( "Getting account balances ...");
+        LOGGER.info("Getting account balances ...");
 
         try {
-            Statement statement = repository.getConnection().createStatement();
+            // Get current blockchain height once, instead of using an inefficient cross join
+            int currentHeight = repository.getBlockRepository().getBlockchainHeight();
 
-            ResultSet resultSet = statement.executeQuery(sql.toString());
+            // Simplified query without cross join - uses covering index (asset_id, account, balance)
+            String sql = "SELECT account, balance FROM AccountBalances WHERE asset_id = 0";
+
+            Statement statement = repository.getConnection().createStatement();
+            ResultSet resultSet = statement.executeQuery(sql);
 
             if (resultSet == null || !resultSet.next())
                 return new ArrayList<>(0);
@@ -863,10 +861,10 @@ public class HSQLDBCacheUtils {
             do {
                 String account = resultSet.getString(1);
                 long balance = resultSet.getLong(2);
-                int height = resultSet.getInt(3);
 
-                data.add(new AccountBalanceData(account, ZERO, balance, height));
+                data.add(new AccountBalanceData(account, ZERO, balance, currentHeight));
             } while (resultSet.next());
+
         } catch (SQLException e) {
             LOGGER.warn(e.getMessage());
         } catch (Exception e) {
