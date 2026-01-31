@@ -125,9 +125,19 @@ public class AtStatesPruner implements Runnable {
 						LOGGER.warn("AT States Pruning interrupted. Trying again. Report this error immediately to the developers.", e);
 					}
 				} catch (Exception e) {
+					// Check if this is a shutdown-related exception (closed connection)
+					if (Controller.isStopping()) {
+						LOGGER.debug("AT States Pruning encountered exception during shutdown, stopping gracefully");
+						return;
+					}
 					LOGGER.warn("AT States Pruning stopped working. Trying again. Report this error immediately to the developers.", e);
 				}
 			} catch(Exception e){
+				// Check if this is a shutdown-related exception
+				if (Controller.isStopping()) {
+					LOGGER.info("AT States Pruning Shutting Down");
+					return;
+				}
 				LOGGER.error("AT States Pruning is not working! Not trying again. Restart ASAP. Report this error immediately to the developers.", e);
 			}
 		}

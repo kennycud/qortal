@@ -128,9 +128,19 @@ public class BlockArchiver implements Runnable {
 						LOGGER.warn("Block Archiving interrupted. Trying again. Report this error immediately to the developers.", e);
 					}
 				} catch (Exception e) {
+					// Check if this is a shutdown-related exception (closed connection)
+					if (Controller.isStopping()) {
+						LOGGER.debug("Block Archiving encountered exception during shutdown, stopping gracefully");
+						return;
+					}
 					LOGGER.warn("Block Archiving stopped working. Trying again. Report this error immediately to the developers.", e);
 				}
 			} catch(Exception e){
+				// Check if this is a shutdown-related exception
+				if (Controller.isStopping()) {
+					LOGGER.info("Block Archiving Shutting Down");
+					return;
+				}
 				LOGGER.error("Block Archiving is not working! Not trying again. Restart ASAP. Report this error immediately to the developers.", e);
 			}
 		}
