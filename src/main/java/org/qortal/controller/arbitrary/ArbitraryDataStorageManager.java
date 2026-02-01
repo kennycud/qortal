@@ -448,7 +448,7 @@ public class ArbitraryDataStorageManager extends Thread {
         }
         this.storageCapacity = storageCapacity;
 
-        LOGGER.info("Total used: {} bytes, Total capacity: {} bytes", this.totalDirectorySize, this.storageCapacity);
+        LOGGER.info("Total used: {} MB, Total capacity: {} MB", this.totalDirectorySize / (1024.0 * 1024.0), this.storageCapacity / (1024.0 * 1024.0));
     }
 
     private long getRemainingUsableStorageCapacity() throws IOException {
