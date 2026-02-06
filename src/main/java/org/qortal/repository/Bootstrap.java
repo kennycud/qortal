@@ -337,18 +337,35 @@ public class Bootstrap {
 
     private void doImport() throws DataException {
         Path path = null;
-        try {
-            Path tempDir = this.createTempDirectory();
-            String filename = String.format("%s%s", Settings.getInstance().getBootstrapFilenamePrefix(), this.getFilename());
-            path = Paths.get(tempDir.toString(), filename);
+        Path tempDir = null;
+        boolean usingExistingExtraction = false;
 
-            // Check if bootstrap file already exists in tmp folder before downloading
+        try {
+            String filename = String.format("%s%s", Settings.getInstance().getBootstrapFilenamePrefix(), this.getFilename());
+
+            // First check if there's an already-extracted bootstrap folder we can reuse
+            Path existingExtractedFolder = this.findExistingExtractedBootstrap();
+            if (existingExtractedFolder != null) {
+                this.updateStatus("Found existing extracted bootstrap, reusing...");
+                LOGGER.info("Reusing existing extracted bootstrap folder: {}", existingExtractedFolder);
+                usingExistingExtraction = true;
+
+                // Use the already-extracted folder directly
+                this.importFromExtractedFolder(existingExtractedFolder);
+                return;
+            }
+
+            // No extracted bootstrap found, check for downloaded .7z file
             Path existingBootstrap = this.findExistingBootstrap(filename);
             if (existingBootstrap != null) {
                 this.updateStatus("Found existing bootstrap file, reusing...");
                 LOGGER.info("Reusing existing bootstrap file: {}", existingBootstrap);
-                Files.copy(existingBootstrap, path, REPLACE_EXISTING);
+                path = existingBootstrap;
+                // Don't create new temp dir, use the one where the file already is
             } else {
+                // No existing file, need to download
+                tempDir = this.createTempDirectory();
+                path = Paths.get(tempDir.toString(), filename);
                 this.downloadToPath(path);
             }
 
@@ -358,15 +375,18 @@ public class Bootstrap {
             throw new DataException("Unable to import bootstrap", e);
         }
         finally {
-            if (path != null) {
+            // Only delete if we created a new temp directory
+            if (tempDir != null && path != null) {
                 try {
                     Files.delete(path);
-
                 } catch (IOException e) {
                     // Temp folder will be cleaned up below, so ignore this failure
                 }
             }
-            this.deleteAllTempDirectories();
+            // Don't delete all temp directories if we're reusing an existing extraction
+            if (!usingExistingExtraction) {
+                this.deleteAllTempDirectories();
+            }
         }
     }
 
@@ -450,6 +470,56 @@ public class Bootstrap {
         return bootstrapHost;
     }
 
+    /**
+     * Import from an already-extracted bootstrap folder (skips decompression)
+     *
+     * @param extractedBootstrapPath Path to the already-extracted "bootstrap" folder
+     */
+    public void importFromExtractedFolder(Path extractedBootstrapPath) throws InterruptedException, DataException, IOException {
+
+        ReentrantLock blockchainLock = Controller.getInstance().getBlockchainLock();
+        blockchainLock.lockInterruptibly();
+
+        try {
+            this.updateStatus("Stopping database cache timers...");
+            // Stop background cache timers before closing repository factory to prevent
+            // "No repository available" errors during the database swap
+            org.qortal.repository.hsqldb.HSQLDBCacheUtils.shutdown();
+
+            this.updateStatus("Stopping repository...");
+            // Close the repository while we are still able to
+            // Otherwise, the caller will run into difficulties when it tries to close it
+            repository.discardChanges();
+            repository.close();
+            // Now close the repository factory so that we can swap out the database files
+            RepositoryManager.closeRepositoryFactory();
+
+            this.updateStatus("Deleting existing repository...");
+            Path outputPath = Paths.get(Settings.getInstance().getRepositoryPath());
+            FileUtils.deleteDirectory(outputPath.toFile());
+
+            if (!extractedBootstrapPath.toFile().exists()) {
+                throw new DataException("Extracted bootstrap doesn't exist");
+            }
+
+            // Move the already-extracted "bootstrap" folder in place of the "db" folder
+            this.updateStatus("Moving files to output directory...");
+            Files.move(extractedBootstrapPath, outputPath);
+
+            this.updateStatus("Starting repository from bootstrap...");
+        }
+        finally {
+            RepositoryFactory repositoryFactory = new HSQLDBRepositoryFactory(Controller.getRepositoryUrl());
+            RepositoryManager.setRepositoryFactory(repositoryFactory);
+
+            this.updateStatus("Restarting database cache timers...");
+            // Restart background cache timers after repository factory is restored
+            this.restartCacheTimers();
+
+            blockchainLock.unlock();
+        }
+    }
+
     public void importFromPath(Path path) throws InterruptedException, DataException, IOException {
 
         ReentrantLock blockchainLock = Controller.getInstance().getBlockchainLock();
@@ -498,6 +568,47 @@ public class Bootstrap {
             this.restartCacheTimers();
 
             blockchainLock.unlock();
+        }
+    }
+
+    /**
+     * Search for an already-extracted bootstrap folder in tmp subdirectories
+     *
+     * @return Path to existing extracted bootstrap folder if found, null otherwise
+     */
+    private Path findExistingExtractedBootstrap() {
+        try {
+            Path initialPath = Paths.get(Settings.getInstance().getRepositoryPath()).toAbsolutePath().getParent();
+            Path tmpPath = Paths.get(initialPath.toString(), "tmp");
+
+            if (!Files.exists(tmpPath)) {
+                return null;
+            }
+
+            // Search all subdirectories in tmp folder for "bootstrap" folders
+            try (java.util.stream.Stream<Path> subdirs = Files.list(tmpPath)) {
+                java.util.Optional<Path> found = subdirs
+                    .filter(Files::isDirectory)
+                    .map(dir -> dir.resolve("bootstrap"))
+                    .filter(Files::exists)
+                    .filter(Files::isDirectory)
+                    .filter(bootstrapDir -> {
+                        try {
+                            // Verify it has actual content (check for db files or archive folder)
+                            try (java.util.stream.Stream<Path> contents = Files.list(bootstrapDir)) {
+                                return contents.findAny().isPresent();
+                            }
+                        } catch (IOException e) {
+                            return false;
+                        }
+                    })
+                    .findFirst();
+
+                return found.orElse(null);
+            }
+        } catch (IOException e) {
+            LOGGER.debug("Error searching for existing extracted bootstrap: {}", e.getMessage());
+            return null;
         }
     }
 
