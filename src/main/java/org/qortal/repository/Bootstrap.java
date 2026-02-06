@@ -11,6 +11,8 @@ import org.qortal.data.block.BlockData;
 import org.qortal.data.crosschain.TradeBotData;
 import org.qortal.gui.SplashFrame;
 import org.qortal.network.Network;
+import org.qortal.controller.hsqldb.HSQLDBBalanceRecorder;
+import org.qortal.repository.hsqldb.HSQLDBCacheUtils;
 import org.qortal.repository.hsqldb.HSQLDBImportExport;
 import org.qortal.repository.hsqldb.HSQLDBRepositoryFactory;
 import org.qortal.settings.Settings;
@@ -445,6 +447,11 @@ public class Bootstrap {
         blockchainLock.lockInterruptibly();
 
         try {
+            this.updateStatus("Stopping database cache timers...");
+            // Stop background cache timers before closing repository factory to prevent
+            // "No repository available" errors during the database swap
+            org.qortal.repository.hsqldb.HSQLDBCacheUtils.shutdown();
+
             this.updateStatus("Stopping repository...");
             // Close the repository while we are still able to
             // Otherwise, the caller will run into difficulties when it tries to close it
@@ -476,6 +483,10 @@ public class Bootstrap {
         finally {
             RepositoryFactory repositoryFactory = new HSQLDBRepositoryFactory(Controller.getRepositoryUrl());
             RepositoryManager.setRepositoryFactory(repositoryFactory);
+
+            this.updateStatus("Restarting database cache timers...");
+            // Restart background cache timers after repository factory is restored
+            this.restartCacheTimers();
 
             blockchainLock.unlock();
         }
@@ -510,6 +521,32 @@ public class Bootstrap {
     private void updateStatus(String text) {
         LOGGER.info(text);
         SplashFrame.getInstance().updateStatus(text);
+    }
+
+    /**
+     * Restart database cache timers after bootstrap import
+     *
+     * This method restarts the background timers that were stopped during
+     * the bootstrap import process to prevent "No repository available" errors.
+     */
+    private void restartCacheTimers() {
+        // Restart DB cache timer if enabled
+        if (Settings.getInstance().isDbCacheEnabled()) {
+            LOGGER.info("Restarting DB cache timer...");
+            HSQLDBCacheUtils.startCaching(
+                Settings.getInstance().getDbCacheThreadPriority(),
+                Settings.getInstance().getDbCacheFrequency()
+            );
+        }
+
+        // Restart balance recorder timer if enabled
+        if (Settings.getInstance().isBalanceRecorderEnabled()) {
+            java.util.Optional<HSQLDBBalanceRecorder> recorder = HSQLDBBalanceRecorder.getInstance();
+            if (recorder.isPresent()) {
+                LOGGER.info("Restarting balance recorder timer...");
+                recorder.get().restartTimer();
+            }
+        }
     }
 
 }
