@@ -342,7 +342,16 @@ public class Bootstrap {
             String filename = String.format("%s%s", Settings.getInstance().getBootstrapFilenamePrefix(), this.getFilename());
             path = Paths.get(tempDir.toString(), filename);
 
-            this.downloadToPath(path);
+            // Check if bootstrap file already exists in tmp folder before downloading
+            Path existingBootstrap = this.findExistingBootstrap(filename);
+            if (existingBootstrap != null) {
+                this.updateStatus("Found existing bootstrap file, reusing...");
+                LOGGER.info("Reusing existing bootstrap file: {}", existingBootstrap);
+                Files.copy(existingBootstrap, path, REPLACE_EXISTING);
+            } else {
+                this.downloadToPath(path);
+            }
+
             this.importFromPath(path);
 
         } catch (InterruptedException | DataException | IOException e) {
@@ -489,6 +498,46 @@ public class Bootstrap {
             this.restartCacheTimers();
 
             blockchainLock.unlock();
+        }
+    }
+
+    /**
+     * Search for an existing bootstrap file in tmp subdirectories
+     *
+     * @param filename The bootstrap filename to search for
+     * @return Path to existing bootstrap file if found, null otherwise
+     */
+    private Path findExistingBootstrap(String filename) {
+        try {
+            Path initialPath = Paths.get(Settings.getInstance().getRepositoryPath()).toAbsolutePath().getParent();
+            Path tmpPath = Paths.get(initialPath.toString(), "tmp");
+
+            if (!Files.exists(tmpPath)) {
+                return null;
+            }
+
+            // Search all subdirectories in tmp folder
+            try (java.util.stream.Stream<Path> subdirs = Files.list(tmpPath)) {
+                java.util.Optional<Path> found = subdirs
+                    .filter(Files::isDirectory)
+                    .map(dir -> dir.resolve(filename))
+                    .filter(Files::exists)
+                    .filter(file -> {
+                        try {
+                            // Verify file is not empty and has reasonable size (> 1MB)
+                            long size = Files.size(file);
+                            return size > 1_000_000;
+                        } catch (IOException e) {
+                            return false;
+                        }
+                    })
+                    .findFirst();
+
+                return found.orElse(null);
+            }
+        } catch (IOException e) {
+            LOGGER.debug("Error searching for existing bootstrap: {}", e.getMessage());
+            return null;
         }
     }
 
