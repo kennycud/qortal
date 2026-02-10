@@ -569,6 +569,7 @@ public class HSQLDBTransactionRepository implements TransactionRepository {
 
 			return signatures;
 		} catch (SQLException e) {
+			LOGGER.error("SQL error executing query: {} with bind params: {}", sql, bindParams, e);
 			throw new DataException("Unable to fetch matching transaction signatures from repository", e);
 		}
 	}
@@ -637,6 +638,7 @@ public class HSQLDBTransactionRepository implements TransactionRepository {
 
 			return signatures;
 		} catch (SQLException e) {
+			LOGGER.error("SQL error executing query: {} with bind params: {}", sql, bindParams, e);
 			throw new DataException("Unable to fetch matching transaction signatures from repository", e);
 		}
 	}
@@ -700,6 +702,7 @@ public class HSQLDBTransactionRepository implements TransactionRepository {
 
 			return signatures;
 		} catch (SQLException e) {
+			LOGGER.error("SQL error executing query: {} with bind params: {}", sql, bindParams, e);
 			throw new DataException("Unable to fetch matching transaction signatures from repository", e);
 		}
 	}
@@ -743,6 +746,7 @@ public class HSQLDBTransactionRepository implements TransactionRepository {
 
 			return signatures;
 		} catch (SQLException e) {
+			LOGGER.error("SQL error executing query: {} with bind params: {}", sql, bindParams, e);
 			throw new DataException("Unable to fetch matching transaction signatures from repository", e);
 		}
 	}
@@ -790,6 +794,7 @@ public class HSQLDBTransactionRepository implements TransactionRepository {
 
 			return signatures;
 		} catch (SQLException e) {
+			LOGGER.error("SQL error executing query: {} with bind params: {}", sql, bindParams, e);
 			throw new DataException("Unable to fetch matching transaction signatures from repository", e);
 		}
 	}
