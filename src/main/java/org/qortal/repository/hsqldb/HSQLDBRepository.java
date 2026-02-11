@@ -2,6 +2,7 @@ package org.qortal.repository.hsqldb;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.qortal.controller.Controller;
 import org.qortal.crypto.Crypto;
 import org.qortal.globalization.Translator;
 import org.qortal.gui.SysTray;
@@ -290,11 +291,24 @@ public class HSQLDBRepository implements Repository {
 	}
 
 	private void maybeCheckpoint() throws DataException {
+		// Skip checkpoint during shutdown to avoid connection exceptions
+		if (Controller.isStopping())
+			return;
+
 		// To serialize checkpointing and to block new sessions when checkpointing in progress
 		synchronized (CHECKPOINT_LOCK) {
 			Boolean quickCheckpointRequest = RepositoryManager.getRequestedCheckpoint();
 			if (quickCheckpointRequest == null)
 				return;
+
+			// Check if connection is still valid before attempting checkpoint
+			try {
+				if (this.connection == null || this.connection.isClosed())
+					return;
+			} catch (SQLException e) {
+				// Connection is not in a valid state, skip checkpoint
+				return;
+			}
 
 			// We can only perform a CHECKPOINT if no other HSQLDB session is mid-transaction,
 			// otherwise the CHECKPOINT blocks for COMMITs and other threads can't open HSQLDB sessions

@@ -66,7 +66,7 @@ public class NamesDatabaseIntegrityCheck {
                 if (currentTransaction.getType() == TransactionType.UPDATE_NAME) {
                     UpdateNameTransactionData updateNameTransactionData = (UpdateNameTransactionData) currentTransaction;
                     Name nameObj = new Name(repository, updateNameTransactionData.getName());
-                    if (nameObj != null && nameObj.getNameData() != null) {
+                    if (nameObj.getNameData() != null) {
                         nameObj.update(updateNameTransactionData);
                         modificationCount++;
                         LOGGER.trace("Processed UPDATE_NAME transaction for name {}", name);
@@ -80,7 +80,7 @@ public class NamesDatabaseIntegrityCheck {
                 if (currentTransaction.getType() == TransactionType.SELL_NAME) {
                     SellNameTransactionData sellNameTransactionData = (SellNameTransactionData) currentTransaction;
                     Name nameObj = new Name(repository, sellNameTransactionData.getName());
-                    if (nameObj != null && nameObj.getNameData() != null) {
+                    if (nameObj.getNameData() != null) {
                         nameObj.sell(sellNameTransactionData);
                         modificationCount++;
                         LOGGER.trace("Processed SELL_NAME transaction for name {}", name);
@@ -95,7 +95,7 @@ public class NamesDatabaseIntegrityCheck {
                 if (currentTransaction.getType() == TransactionType.CANCEL_SELL_NAME) {
                     CancelSellNameTransactionData cancelSellNameTransactionData = (CancelSellNameTransactionData) currentTransaction;
                     Name nameObj = new Name(repository, cancelSellNameTransactionData.getName());
-                    if (nameObj != null && nameObj.getNameData() != null) {
+                    if (nameObj.getNameData() != null) {
                         nameObj.cancelSell(cancelSellNameTransactionData);
                         modificationCount++;
                         LOGGER.trace("Processed CANCEL_SELL_NAME transaction for name {}", name);
@@ -110,7 +110,7 @@ public class NamesDatabaseIntegrityCheck {
                 if (currentTransaction.getType() == TransactionType.BUY_NAME) {
                     BuyNameTransactionData buyNameTransactionData = (BuyNameTransactionData) currentTransaction;
                     Name nameObj = new Name(repository, buyNameTransactionData.getName());
-                    if (nameObj != null && nameObj.getNameData() != null) {
+                    if (nameObj.getNameData() != null) {
                         nameObj.buy(buyNameTransactionData, false);
                         modificationCount++;
                         LOGGER.trace("Processed BUY_NAME transaction for name {}", name);
@@ -367,7 +367,7 @@ public class NamesDatabaseIntegrityCheck {
                 RegisterNameTransactionData registerNameTransactionData = (RegisterNameTransactionData) transactionData;
                 involvedNames.add(registerNameTransactionData.getName());
                 String reducedName = Unicode.sanitize(registerNameTransactionData.getName());
-                if (reducedName != null && !reducedName.equals(registerNameTransactionData.getName())) {
+                if (!reducedName.equals(registerNameTransactionData.getName())) {
                     involvedNames.add(reducedName);
                 }
             }
@@ -377,7 +377,7 @@ public class NamesDatabaseIntegrityCheck {
                 if (updateNameTransactionData.getNewName() != null) {
                     involvedNames.add(updateNameTransactionData.getNewName());
                     String reducedNewName = Unicode.sanitize(updateNameTransactionData.getNewName());
-                    if (reducedNewName != null && !reducedNewName.isEmpty()) {
+                    if (!reducedNewName.isEmpty()) {
                         involvedNames.add(reducedNewName);
                     }
                 }
@@ -469,12 +469,10 @@ public class NamesDatabaseIntegrityCheck {
         List<TransactionData> transactionsInvolvingName = this.fetchAllTransactionsInvolvingName(registeredName, repository);
 
         // Get the latest update for this name (excluding REGISTER_NAME transactions)
-        TransactionData latestUpdateToName = transactionsInvolvingName.stream()
+        return transactionsInvolvingName.stream()
                 .filter(txn -> txn.getType() != TransactionType.REGISTER_NAME)
                 .max(Comparator.comparing(TransactionData::getTimestamp))
                 .orElse(null);
-
-        return latestUpdateToName;
     }
 
     private List<String> fetchAllNames(Repository repository) throws DataException {
