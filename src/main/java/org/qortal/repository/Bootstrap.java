@@ -11,6 +11,8 @@ import org.qortal.data.block.BlockData;
 import org.qortal.data.crosschain.TradeBotData;
 import org.qortal.gui.SplashFrame;
 import org.qortal.network.Network;
+import org.qortal.controller.hsqldb.HSQLDBBalanceRecorder;
+import org.qortal.repository.hsqldb.HSQLDBCacheUtils;
 import org.qortal.repository.hsqldb.HSQLDBImportExport;
 import org.qortal.repository.hsqldb.HSQLDBRepositoryFactory;
 import org.qortal.settings.Settings;
@@ -340,7 +342,16 @@ public class Bootstrap {
             String filename = String.format("%s%s", Settings.getInstance().getBootstrapFilenamePrefix(), this.getFilename());
             path = Paths.get(tempDir.toString(), filename);
 
-            this.downloadToPath(path);
+            // Check if bootstrap file already exists in tmp folder before downloading
+            Path existingBootstrap = this.findExistingBootstrap(filename);
+            if (existingBootstrap != null) {
+                this.updateStatus("Found existing bootstrap file, reusing...");
+                LOGGER.info("Reusing existing bootstrap file: {}", existingBootstrap);
+                Files.copy(existingBootstrap, path, REPLACE_EXISTING);
+            } else {
+                this.downloadToPath(path);
+            }
+
             this.importFromPath(path);
 
         } catch (InterruptedException | DataException | IOException e) {
@@ -445,6 +456,11 @@ public class Bootstrap {
         blockchainLock.lockInterruptibly();
 
         try {
+            this.updateStatus("Stopping database cache timers...");
+            // Stop background cache timers before closing repository factory to prevent
+            // "No repository available" errors during the database swap
+            org.qortal.repository.hsqldb.HSQLDBCacheUtils.shutdown();
+
             this.updateStatus("Stopping repository...");
             // Close the repository while we are still able to
             // Otherwise, the caller will run into difficulties when it tries to close it
@@ -477,7 +493,51 @@ public class Bootstrap {
             RepositoryFactory repositoryFactory = new HSQLDBRepositoryFactory(Controller.getRepositoryUrl());
             RepositoryManager.setRepositoryFactory(repositoryFactory);
 
+            this.updateStatus("Restarting database cache timers...");
+            // Restart background cache timers after repository factory is restored
+            this.restartCacheTimers();
+
             blockchainLock.unlock();
+        }
+    }
+
+    /**
+     * Search for an existing bootstrap file in tmp subdirectories
+     *
+     * @param filename The bootstrap filename to search for
+     * @return Path to existing bootstrap file if found, null otherwise
+     */
+    private Path findExistingBootstrap(String filename) {
+        try {
+            Path initialPath = Paths.get(Settings.getInstance().getRepositoryPath()).toAbsolutePath().getParent();
+            Path tmpPath = Paths.get(initialPath.toString(), "tmp");
+
+            if (!Files.exists(tmpPath)) {
+                return null;
+            }
+
+            // Search all subdirectories in tmp folder
+            try (java.util.stream.Stream<Path> subdirs = Files.list(tmpPath)) {
+                java.util.Optional<Path> found = subdirs
+                    .filter(Files::isDirectory)
+                    .map(dir -> dir.resolve(filename))
+                    .filter(Files::exists)
+                    .filter(file -> {
+                        try {
+                            // Verify file is not empty and has reasonable size (> 1MB)
+                            long size = Files.size(file);
+                            return size > 1_000_000;
+                        } catch (IOException e) {
+                            return false;
+                        }
+                    })
+                    .findFirst();
+
+                return found.orElse(null);
+            }
+        } catch (IOException e) {
+            LOGGER.debug("Error searching for existing bootstrap: {}", e.getMessage());
+            return null;
         }
     }
 
@@ -510,6 +570,32 @@ public class Bootstrap {
     private void updateStatus(String text) {
         LOGGER.info(text);
         SplashFrame.getInstance().updateStatus(text);
+    }
+
+    /**
+     * Restart database cache timers after bootstrap import
+     *
+     * This method restarts the background timers that were stopped during
+     * the bootstrap import process to prevent "No repository available" errors.
+     */
+    private void restartCacheTimers() {
+        // Restart DB cache timer if enabled
+        if (Settings.getInstance().isDbCacheEnabled()) {
+            LOGGER.info("Restarting DB cache timer...");
+            HSQLDBCacheUtils.startCaching(
+                Settings.getInstance().getDbCacheThreadPriority(),
+                Settings.getInstance().getDbCacheFrequency()
+            );
+        }
+
+        // Restart balance recorder timer if enabled
+        if (Settings.getInstance().isBalanceRecorderEnabled()) {
+            java.util.Optional<HSQLDBBalanceRecorder> recorder = HSQLDBBalanceRecorder.getInstance();
+            if (recorder.isPresent()) {
+                LOGGER.info("Restarting balance recorder timer...");
+                recorder.get().restartTimer();
+            }
+        }
     }
 
 }

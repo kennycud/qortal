@@ -120,6 +120,23 @@ public class HSQLDBBalanceRecorder extends Thread{
         return this.balancesByAddress.get(address);
     }
 
+    /**
+     * Restart the balance recording timer
+     *
+     * This method restarts the internal timer that was stopped, using the same
+     * configuration and data structures. This is useful after events like bootstrap
+     * import where the repository factory is temporarily unavailable.
+     */
+    public void restartTimer() {
+        HSQLDBCacheUtils.startRecordingBalances(
+            this.balancesByHeight,
+            this.balanceDynamics,
+            this.priorityRequested,
+            this.frequency,
+            this.capacity
+        );
+    }
+
     @Override
     public String toString() {
         return "HSQLDBBalanceRecorder{" +
