@@ -444,9 +444,6 @@ public class Controller extends Thread {
 				ArbitraryDataCacheManager.getInstance().buildArbitraryResourcesCache(repository, false);
 			}
 
-			try(final Repository repository = RepositoryManager.getRepository()) {
-				ArbitraryDataCacheManager.populateLatestSignaturesIfNecessary(repository.getConnection());
-			}
 
 			if( Settings.getInstance().isDbCacheEnabled() ) {
 				LOGGER.info("Starting Db Cache...");
@@ -517,7 +514,12 @@ public class Controller extends Thread {
 			}
 		}
 
+	
+
 		try (Repository repository = RepositoryManager.getRepository()) {
+
+			ArbitraryDataCacheManager.populateLatestSignaturesIfNecessary(repository.getConnection());
+		
 			if (RepositoryManager.needsTransactionSequenceRebuild(repository)) {
 				// Don't allow the node to start if transaction sequences haven't been built yet
 				// This is needed to handle a case when bootstrapping

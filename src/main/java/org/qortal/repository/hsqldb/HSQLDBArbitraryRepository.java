@@ -1398,6 +1398,7 @@ public class HSQLDBArbitraryRepository implements ArbitraryRepository {
 
 		// "status" isn't saved here as we update this field separately
 		saveHelper.bind("service", arbitraryResourceData.service.value).bind("name", arbitraryResourceData.name)
+				.bind("lower_case_name", arbitraryResourceData.name.toLowerCase())
 				.bind("identifier", arbitraryResourceData.identifier).bind("size", arbitraryResourceData.size)
 				.bind("created_when", arbitraryResourceData.created).bind("updated_when", arbitraryResourceData.updated)
 				.bind( "latest_signature", arbitraryResourceData.latestSignature);
