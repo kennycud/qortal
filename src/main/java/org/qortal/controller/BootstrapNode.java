@@ -28,7 +28,7 @@ public class BootstrapNode {
 	private static final Logger LOGGER = LogManager.getLogger(BootstrapNode.class);
 
 	public static boolean attemptToBootstrap() {
-		LOGGER.info(String.format("Bootstrapping node..."));
+		LOGGER.info("Bootstrapping node...");
 
 		// Give repository a chance to backup in case things go badly wrong (if enabled)
 		if (Settings.getInstance().getRepositoryBackupInterval() > 0) {

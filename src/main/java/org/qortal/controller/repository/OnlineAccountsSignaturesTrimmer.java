@@ -101,9 +101,19 @@ public class OnlineAccountsSignaturesTrimmer implements Runnable {
 						LOGGER.warn("Online Accounts Signatures Trimming interrupted. Trying again. Report this error immediately to the developers.", e);
 					}
 				} catch (Exception e) {
+					// Check if this is a shutdown-related exception (closed connection)
+					if (Controller.isStopping()) {
+						LOGGER.debug("Online Accounts Signatures Trimming encountered exception during shutdown, stopping gracefully");
+						return;
+					}
 					LOGGER.warn("Online Accounts Signatures Trimming stopped working. Trying again. Report this error immediately to the developers.", e);
 				}
 			} catch (Exception e) {
+				// Check if this is a shutdown-related exception
+				if (Controller.isStopping()) {
+					LOGGER.info("Online Accounts Signatures Trimming Shutting Down");
+					return;
+				}
 				LOGGER.error("Online Accounts Signatures Trimming is not working! Not trying again. Restart ASAP. Report this error immediately to the developers.", e);
 			}
 		}
