@@ -100,6 +100,8 @@ public class Controller extends Thread {
 	private static final long NTP_PRE_SYNC_CHECK_PERIOD = 5 * 1000L; // ms
 	private static final long NTP_POST_SYNC_CHECK_PERIOD = 5 * 60 * 1000L; // ms
 	private static final long DELETE_EXPIRED_INTERVAL = 5 * 60 * 1000L; // ms
+	private static final int DELETE_EXPIRED_BATCH_SIZE = 100; // Process transactions in batches
+	private static final int DELETE_EXPIRED_MAX_PER_ROUND = 500; // Maximum total transactions to process per call
 
 	private static volatile boolean isStopping = false;
 	private static BlockMinter blockMinter = null;
@@ -1125,21 +1127,42 @@ public class Controller extends Thread {
 			List<TransactionData> transactions = repository.getTransactionRepository().getUnconfirmedTransactions();
 
 			int deletedCount = 0;
-			for (TransactionData transactionData : transactions) {
-				Transaction transaction = Transaction.fromData(repository, transactionData);
+			int processedCount = 0;
+			int batchCount = 0;
 
-				if (now >= transaction.getDeadline()) {
+			for (TransactionData transactionData : transactions) {
+				// Stop if we've processed the maximum allowed per round
+				if (processedCount >= DELETE_EXPIRED_MAX_PER_ROUND)
+					break;
+
+				// Check deadline directly without creating Transaction object for better performance
+				long deadline = Transaction.getDeadline(transactionData);
+
+				if (now >= deadline) {
 					LOGGER.debug(() -> String.format("Deleting expired, unconfirmed transaction %s", Base58.encode(transactionData.getSignature())));
 					repository.getTransactionRepository().delete(transactionData);
 					this.onExpiredTransaction(transactionData);
 					deletedCount++;
+					batchCount++;
+
+					// Save changes after each batch to release locks and prevent blocking
+					if (batchCount >= DELETE_EXPIRED_BATCH_SIZE) {
+						repository.saveChanges();
+						batchCount = 0;
+					}
 				}
+
+				processedCount++;
 			}
+
+			// Save any remaining changes
+			if (batchCount > 0) {
+				repository.saveChanges();
+			}
+
 			if (deletedCount > 0) {
 				LOGGER.info(String.format("Deleted %d expired, unconfirmed transaction%s", deletedCount, (deletedCount == 1 ? "" : "s")));
 			}
-
-			repository.saveChanges();
 		} catch (DataException e) {
 			if (RepositoryManager.isDeadlockRelated(e))
 				LOGGER.info("Couldn't delete some expired, unconfirmed transactions this round");
