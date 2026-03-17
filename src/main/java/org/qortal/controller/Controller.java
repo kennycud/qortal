@@ -573,6 +573,9 @@ public class Controller extends Thread {
 		LOGGER.info("Starting trade-bot");
 		TradeBot.getInstance();
 
+		LOGGER.info("Starting chat delegate");
+		ChatTransactionDelegate.getInstance();
+
 		// Arbitrary data controllers
 		LOGGER.info("Starting arbitrary-transaction controllers");
 		ArbitraryDataManager.getInstance().start();
@@ -1203,6 +1206,10 @@ public class Controller extends Thread {
 					LOGGER.info("Shutting down auto-update");
 					AutoUpdate.getInstance().shutdown();
 				}
+
+				// Chat
+				LOGGER.info("Shutting down chat delegate");
+				ChatTransactionDelegate.getInstance().shutdown();
 
 			// Arbitrary data controllers
 			LOGGER.info("Shutting down arbitrary-transaction controllers");
